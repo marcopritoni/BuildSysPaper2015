@@ -1,6 +1,6 @@
 [sysID]
 client=http://www.openbms.org/backend
 
-where=Metadata/Location/Building = 'Sutardja Dai Hall' and Metadata/PointName like '%ROOM TEMP' and (Metadata/Extra/Vav = 'S2-10' or Metadata/Extra/Vav = 'S2-09')
+where=Metadata/Extra/Vav like 'S1-0_' and Path like '%TEMP%'
 
 output=collections.json

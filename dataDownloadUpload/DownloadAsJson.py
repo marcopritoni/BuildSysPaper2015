@@ -327,9 +327,9 @@ def deepenTagDict(d):
 def getConfigInfo(fName):
     cnfg = ConfigParser.ConfigParser()
     cnfg.read(fName)
-    serverName = cnfg.get('info', 'server')
-    whereClause = cnfg.get('info','whereClause')
-    outputFileName = cnfg.get('info', 'outputF')
+    serverName = cnfg.get('sysID', 'client')
+    whereClause = cnfg.get('sysID','where')
+    outputFileName = cnfg.get('sysID', 'output')
 
     return serverName, whereClause, outputFileName
 # END: def getConfigInfo(fName)
