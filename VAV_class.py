@@ -62,15 +62,20 @@ class VAV:
 
     def _calcRoomThermLoad(self, temprFlowStreamData, roomTemprStreamData,
                            volAirFlowStreamData, combineType=’sum’):
-        CONSTANT = 10 # Placeholder value
+        RHO = 1.2005 * pq.kg/pq.m**3
+        C = 1005 * pq.J/(pq.kg/pq.degC)
         newList = []
         for flowTemprPair, roomTemprPair, flowRatePair in \
             zip(temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData):
-            curFlwTmprF = flowTemprPair[1] * pq.Fahrenheit
-            curRoomTmprF = roomTemprPair[1] * pq.Fahrenheit
-            curTemprDiff = curFlwTmprF - curRoomTmprF
+            curFlwTmprF = flowTemprPair[1] * pq.degF
+            curFlwTemprC = curFlwTemprF.rescale('Deg C')
+            curRoomTmprF = roomTemprPair[1] * pq.degF
+            curRoomTmprC = curRoomTmprF.rescale('Deg C')
+            curTemprDiff = curFlwTmprC - curRoomTmprC
             curFlowRate = flowRatePair[1] * (pq.foot**3 / pq.minute)
-            newList.append(curTemprDiff * curflowRate * CONSTANT)
+            cfrMetric = curFlowRate.rescale(pq.CompountUnit('meter**3/second'))
+            curLoad = (curTemprDiff * cfrMetric * RHO * C).rescale('W')
+            newList.append(int(curLoad))
 
         if combineType == 'sum':
             retVal = sum(newList)
