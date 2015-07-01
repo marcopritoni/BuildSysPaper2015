@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 __author__ = 'Miguel'
 
 from smap.archiver.client import SmapClient
@@ -5,6 +6,8 @@ import pandas as pd
 from pprint import pprint
 from ConfigParser import ConfigParser
 import json
+import quantities as pq
+import sys
 
 # Make these class variables into a dictionary to make it concise.
 
@@ -57,6 +60,29 @@ class VAV:
             print rogue_type + ' is not a valid option for rogue_type'
 
 
+    def _calcRoomThermLoad(self, temprFlowStreamData, roomTemprStreamData,
+                           volAirFlowStreamData, combineType=’sum’):
+        CONSTANT = 10 # Placeholder value
+        newList = []
+        for flowTemprPair, roomTemprPair, flowRatePair in \
+            zip(temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData):
+            curFlwTmprF = flowTemprPair[1] * pq.Fahrenheit
+            curRoomTmprF = roomTemprPair[1] * pq.Fahrenheit
+            curTemprDiff = curFlwTmprF - curRoomTmprF
+            curFlowRate = flowRatePair[1] * (pq.foot**3 / pq.minute)
+            newList.append(curTemprDiff * curflowRate * CONSTANT)
+
+        if combineType == 'sum':
+            retVal = sum(newList)
+        elif combineType == 'avg':
+            retVal = sum(newList)/float(len(newList))
+        else:
+            print "ERROR: Invalid perrameter to _calcRoomThermLoad. Exiting."
+            sys.exit()
+        
+        return retVal
+            
+            
 
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
