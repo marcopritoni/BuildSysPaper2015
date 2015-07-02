@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 __author__ = 'Miguel'
 
 from smap.archiver.client import SmapClient
@@ -10,7 +9,6 @@ import quantities as pq
 import sys
 
 # Make these class variables into a dictionary to make it concise.
-
 
 class VAV:
     def __init__(self, sensors, temp_control_type):
@@ -59,20 +57,27 @@ class VAV:
         else:
             print rogue_type + ' is not a valid option for rogue_type'
 
+# _query_data(self, sensor_name, start_date, end_date, interpolation_time)
+# (self, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData, combineType='sum'):
 
-    def _calcRoomThermLoad(self, temprFlowStreamData, roomTemprStreamData,
-                           volAirFlowStreamData, combineType=’sum’):
+    def _calcRoomThermLoad(self, start_date, end_date, interpolation_time, combineType='sum'):
+        temprFlowStreamData  = self._query_data(TEMPR_FLOW_PLACEHOLDER,
+                                                start_date, end_date, interpolation_time)['Reading']
+        roomTemprStreamData  = self._query_data(ROOM_TEMPR_PLACEHOLDER,
+                                                start_date, end_date, interpolation_time)['Reading']
+        volAirFlowStreamData = self._query_data(VOL_AIR_FLOW_PLACEHOLDER,
+                                                start_date, end_date, interpolation_time)['Reading']
         RHO = 1.2005 * pq.kg/pq.m**3
         C = 1005 * pq.J/(pq.kg/pq.degC)
         newList = []
-        for flowTemprPair, roomTemprPair, flowRatePair in \
+        for flowTempr, roomTempr, flowRate in \
             zip(temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData):
-            curFlwTmprF = flowTemprPair[1] * pq.degF
-            curFlwTemprC = curFlwTemprF.rescale('Deg C')
-            curRoomTmprF = roomTemprPair[1] * pq.degF
-            curRoomTmprC = curRoomTmprF.rescale('Deg C')
+            curFlwTmprF = flowTempr * pq.degF
+            curFlwTmprC = curFlwTmprF.rescale('deg C')
+            curRoomTmprF = roomTempr * pq.degF
+            curRoomTmprC = curRoomTmprF.rescale('deg C')
             curTemprDiff = curFlwTmprC - curRoomTmprC
-            curFlowRate = flowRatePair[1] * (pq.foot**3 / pq.minute)
+            curFlowRate = flowRate * (pq.foot**3 / pq.minute)
             cfrMetric = curFlowRate.rescale(pq.CompountUnit('meter**3/second'))
             curLoad = (curTemprDiff * cfrMetric * RHO * C).rescale('W')
             newList.append(int(curLoad))
@@ -82,7 +87,7 @@ class VAV:
         elif combineType == 'avg':
             retVal = sum(newList)/float(len(newList))
         else:
-            print "ERROR: Invalid perrameter to _calcRoomThermLoad. Exiting."
+            print "ERROR: Invalid parameter to _calcRoomThermLoad. Exiting."
             sys.exit()
         
         return retVal
