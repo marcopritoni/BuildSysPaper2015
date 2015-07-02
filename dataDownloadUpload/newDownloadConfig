@@ -1,6 +1,7 @@
 [sysID]
 client=http://www.openbms.org/backend
-
-where=Metadata/Extra/Vav like 'S1-0_' and Path like '%TEMP%'
-
+where=Path like "/Siemens/SDH.PXCM-04/SDH/%" and Path like "%S_-%"
 output=collections.json
+start=None
+end=None
+limit=500

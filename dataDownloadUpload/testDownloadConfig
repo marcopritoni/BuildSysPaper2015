@@ -1,0 +1,7 @@
+[sysID]
+client=http://52.8.2.68:8079/api/query
+where=Metadata/SourceName = "Ghausi_Data"
+output=collections.json
+start=None
+end=None
+limit=100

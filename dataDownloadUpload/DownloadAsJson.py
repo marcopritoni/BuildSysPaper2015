@@ -181,17 +181,22 @@ class Collection:
 
 
     # Assigns readings to this stream
-    def assignReadings(self, start='4/1/2015', end='4/30/2015',
-                       beforeNow=True, limit=100):
+    def assignReadings(self, start=None, end=None, limit=100):
         global c
         if not self.isStream:
             print "Error: getReadings called from non-stream. Exiting."
             sys.exit()
         # END: if not self.isStream
 
-        if beforeNow:
+        if start is None and end is None:
             timeRangeClause = 'before now'
-        # END: if beforeNow
+        # END: if start is None and end is None
+        elif start is None:
+            timeRangeClause = 'before "' + end + '"'
+        # END: elif start is None
+        elif end is None:
+            timeRangeClause = 'after "' + start + '"'
+        # END: elif end is None
         else:
             timeRangeClause = 'in ("' + start + '", "' + end + '")'
         # END: else
@@ -210,13 +215,12 @@ class Collection:
 
 
     # Assigns readings to every stream below this Collection.
-    def assignReadingsToAll(self, strt='4/1/2015', e='4/30/2015',
-                            bfrNow=True, lmt=100):
+    def assignReadingsToAll(self, strt=None, e=None, lmt=100):
         if self.isStream:
-            self.assignReadings(strt, e, bfrNow, lmt)
+            self.assignReadings(strt, e, lmt)
         # END: if self.isStream
         for coll in self.subCollections:
-            self.subCollections[coll].assignReadingsToAll(strt, e, bfrNow, lmt)
+            self.subCollections[coll].assignReadingsToAll(strt, e, lmt)
         # END: for coll in self.subCollections
     # END: def assignReadings(self, strt, e, bfrNow, lmt)
 
@@ -323,15 +327,23 @@ def deepenTagDict(d):
 # END: def deepenTagDict(d)
 
 
-# Gets server address, where-clause, and output file name from config file.
+# Gets server address, where-clause, output file name, and stream-query info
+# from config file.
 def getConfigInfo(fName):
     cnfg = ConfigParser.ConfigParser()
     cnfg.read(fName)
     serverName = cnfg.get('sysID', 'client')
     whereClause = cnfg.get('sysID','where')
     outputFileName = cnfg.get('sysID', 'output')
+    startDate = cnfg.get('sysID', 'start')
+    endDate = cnfg.get('sysID', 'end')
+    if startDate == 'None':
+        startDate = None
+    if endDate == 'None':
+        endDate = None
+    limit = cnfg.get('sysID', 'limit')
 
-    return serverName, whereClause, outputFileName
+    return serverName, whereClause, outputFileName, startDate, endDate, limit
 # END: def getConfigInfo(fName)
 
 
@@ -399,7 +411,8 @@ def testFlattenDeepen():
 
 def main():
     global c
-    serverAddress, whereClause, outputFName = getConfigInfo(readCommandLine())
+    serverAddress, whereClause, outputFName, start, end, limit = \
+                   getConfigInfo(readCommandLine())
     print "Accessing server..."
     c = SmapClient(serverAddress)
     print "Querying database..."
@@ -407,7 +420,7 @@ def main():
     print "Constructing hierarchy..."
     masterColl = Collection(seriesList)
     print "Getting readings..."
-    masterColl.assignReadingsToAll()
+    masterColl.assignReadingsToAll(start, end, limit)
     print "Converting data format..."
     constructedDict = masterColl.asFullDict()
     print "Generating JSON file..."
