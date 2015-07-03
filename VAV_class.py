@@ -15,13 +15,18 @@ class VAV:
         self.sensors = sensors
         self.temp_control_type = temp_control_type
 
-    def _query_data(self, sensor_name, start_date, end_date, interpolation_time):
+    def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None:
             print 'no ' + sensor_name + ' info'
             return
-        print 'select data in (\'' + start_date + '\', \'' + end_date + '\') where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-        x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+        
+        if start_date is None and end_date is None:
+            print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+            x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+        else:
+            print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+            x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
         pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', 'Reading'])
         pos_table['Time'] = pd.to_datetime(pos_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
         pos_table.set_index('Time', inplace=True)
@@ -77,38 +82,53 @@ class VAV:
 # _query_data(self, sensor_name, start_date, end_date, interpolation_time)
 # (self, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData, combineType='sum'):
 
-    def _calcRoomThermLoad(self, start_date, end_date, interpolation_time, combineType='sum'):
+    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', combineType='avg'):
         if not combineType in ['sum', 'avg']:
             print "ERROR: combineType value " + combineType + \
                   " not recognised. Exiting."
             sys.exit()
-        temprFlowStreamData  = self._query_data(TEMPR_FLOW_PLACEHOLDER,
-                                                start_date, end_date, interpolation_time)['Reading']
-        roomTemprStreamData  = self._query_data(ROOM_TEMPR_PLACEHOLDER,
-                                                start_date, end_date, interpolation_time)['Reading']
-        volAirFlowStreamData = self._query_data(VOL_AIR_FLOW_PLACEHOLDER,
-                                                start_date, end_date, interpolation_time)['Reading']
-        RHO = 1.2005 * pq.kg/pq.m**3
-        C = 1005 * pq.J/(pq.kg/pq.degC)
-        newList = []
-        for flowTempr, roomTempr, flowRate in \
-            zip(temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData):
-            curFlwTmprF = flowTempr * pq.degF
-            curFlwTmprC = curFlwTmprF.rescale('deg C')
-            curRoomTmprF = roomTempr * pq.degF
-            curRoomTmprC = curRoomTmprF.rescale('deg C')
-            curTemprDiff = curFlwTmprC - curRoomTmprC
-            curFlowRate = flowRate * (pq.foot**3 / pq.minute)
-            cfrMetric = curFlowRate.rescale(pq.CompountUnit('meter**3/second'))
-            curLoad = (curTemprDiff * cfrMetric * RHO * C).rescale('W')
-            newList.append(int(curLoad))
 
+
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=10000)
+        temprFlowStrDt.columns = ['temprFlow']
+        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=10000)
+        roomTemprStrDt.columns = ['roomTempr']
+        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=10000)
+        volAirFlowStrDt.columns = ['volAirFlow']
+
+        intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
+        fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True)
+        
+        temprFlowStreamData  = list(fullGrouping['temprFlow'])
+        roomTemprStreamData  = list(fullGrouping['roomTempr'])
+        volAirFlowStreamData = list(fullGrouping['volAirFlow'])
+        
+        RHO = 1.2005 * pq.kg/pq.m**3
+        C = 1005.0 * pq.J/(pq.kg*pq.degC)
+        newList = []
+
+        flwTmprF = temprFlowStreamData * pq.degF
+        flwTmprC = flwTmprF.rescale('degC')
+        roomTmprF = roomTemprStreamData * pq.degF
+        roomTmprC = roomTmprF.rescale('degC')
+        temprDiff = flwTmprC - roomTmprC
+        flowRate = volAirFlowStreamData * (pq.foot**3 / pq.minute)
+        frMetric = flowRate.rescale(pq.CompoundUnit('meter**3/second'))
+        load = (temprDiff * frMetric * RHO * C).rescale('W')
+        
+
+        newList = list([float(e) for e in load])
         if combineType == 'sum':
             retVal = sum(newList)
         elif combineType == 'avg':
-            retVal = sum(newList)/float(len(newList))
-        
+            if len(newList) == 0:
+                retVal = 0
+            else:
+                retVal = sum(newList)/float(len(newList))
+        print str(len(fullGrouping.index)) + " : " + str(len(newList))
         return retVal
+
+
 
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
@@ -118,5 +138,9 @@ with open('SDaiLimited.json') as data_file:
 #     inst = VAV(data[key])
 #     inst.find_rogue_pressure()
 inst = VAV(data['S2-18'], 'Dual')
+testThermLoad = VAV(data['S2-12'], 'Dual')
 print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+av = testThermLoad.calcRoomThermLoad(None, None, '5min', 'avg')
+sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 'sum')
+print "Avg: " + str(av) + ", Sum: " + str(sm)
 
