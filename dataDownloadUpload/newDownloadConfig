@@ -1,7 +1,7 @@
 [sysID]
 client=http://www.openbms.org/backend
 where=Path like "/Siemens/SDH.PXCM-04/SDH/%" and Path like "%S_-%"
-output=collections.json
+output=SutardjaDownload.json
 start=None
 end=None
-limit=500
+limit=1000
