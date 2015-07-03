@@ -61,6 +61,10 @@ class VAV:
 # (self, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData, combineType='sum'):
 
     def _calcRoomThermLoad(self, start_date, end_date, interpolation_time, combineType='sum'):
+        if not combineType in ['sum', 'avg']:
+            print "ERROR: combineType value " + combineType + \
+                  " not recognised. Exiting."
+            sys.exit()
         temprFlowStreamData  = self._query_data(TEMPR_FLOW_PLACEHOLDER,
                                                 start_date, end_date, interpolation_time)['Reading']
         roomTemprStreamData  = self._query_data(ROOM_TEMPR_PLACEHOLDER,
@@ -86,9 +90,6 @@ class VAV:
             retVal = sum(newList)
         elif combineType == 'avg':
             retVal = sum(newList)/float(len(newList))
-        else:
-            print "ERROR: Invalid parameter to _calcRoomThermLoad. Exiting."
-            sys.exit()
         
         return retVal
             
