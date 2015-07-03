@@ -33,27 +33,44 @@ class VAV:
             threshold = 95
         table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
         total = float(table.count())
-        count = float(table.where[table['Readings'] >= threshold].count())
+        count = float(table.where(table[['Reading']] >= threshold).count())
         percent = (count / total) * 100
         return percent
 
     def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time, threshold=3):
         if threshold is None:
             threshold = 3
-        self._query_data(FILL, date_start, date_end, interpolation_time)
-        # TODO- actually analyze and find the rogue temp heat
+        if self.temp_control_type == 'Dual':
+            print 'nothing'
 
-    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time, threshold=3):
-        self._query_data(FILL, date_start, date_end, interpolation_time)
-        # TODO- actually analyze and find the rogue temp cool
+        elif self.temp_control_type == 'Single':
+            print 'nothing'
+
+        elif self.temp_control_type == 'Current':
+            print 'nothing'
+
+        else:
+            print 'unrecognized temperature control type'
+
+
+        # TODO- get correct setpoints depending on temp control type
+        # TODO- query correctly depending on temp control type
+        # TODO- analyze depending on temp control type
+
+
+    #def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time, threshold=3):
+
+        # TODO- get correct setpoints depending on temp control type
+        # TODO- query correctly depending on temp control type
+        # TODO- analyze depending on temp control type
 
     def find_rogue(self, rogue_type, threshold = None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min'):
-        if rogue_type == 'pressure':
-            self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold)
-        elif rogue_type == 'tempc':
-            self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
-        elif rogue_type == 'temph':
-            self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
+        if rogue_type == 'Pressure':
+            return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold)
+        elif rogue_type == 'Tempc':
+            return self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
+        elif rogue_type == 'Temph':
+            return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
         else:
             print rogue_type + ' is not a valid option for rogue_type'
 
@@ -92,8 +109,6 @@ class VAV:
             retVal = sum(newList)/float(len(newList))
         
         return retVal
-            
-            
 
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
@@ -102,6 +117,6 @@ with open('SDaiLimited.json') as data_file:
 # for key in data.keys():
 #     inst = VAV(data[key])
 #     inst.find_rogue_pressure()
-inst = VAV(data['S2-18'], 'control')
-inst.find_rogue('pressure', date_start='4/1/2014', date_end='5/1/2014')
+inst = VAV(data['S2-18'], 'Dual')
+print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
 
