@@ -47,7 +47,14 @@ class VAV:
             print 'nothing'
 
         elif self.temp_control_type == 'Current':
-            print 'nothing'
+            table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
+            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+            stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).min())
+            roomTemp = roomTemp.where(table[['Reading']] == 1)
+            total = float(roomTemp.count())
+            count = float(roomTemp.where(roomTemp[['Reading']] - stpt >= threshold).count())
+            percent = (count / total) * 100
+            return percent
 
         else:
             print 'unrecognized temperature control type'
@@ -57,9 +64,27 @@ class VAV:
         # TODO- query correctly depending on temp control type
         # TODO- analyze depending on temp control type
 
+    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time, threshold=3):
+        if threshold is None:
+            threshold = 3
+        if self.temp_control_type == 'Dual':
+            print 'nothing'
 
-    #def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time, threshold=3):
+        elif self.temp_control_type == 'Single':
+            print 'nothing'
 
+        elif self.temp_control_type == 'Current':
+            table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
+            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+            stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).max())
+            roomTemp = roomTemp.where(table[['Reading']] == 1)
+            total = float(roomTemp.count())
+            count = float(roomTemp.where(stpt - roomTemp[['Reading']] >= threshold).count())
+            percent = (count / total) * 100
+            return percent
+
+        else:
+            print 'unrecognized temperature control type'
         # TODO- get correct setpoints depending on temp control type
         # TODO- query correctly depending on temp control type
         # TODO- analyze depending on temp control type
@@ -116,6 +141,7 @@ with open('SDaiLimited.json') as data_file:
 # for key in data.keys():
 #     inst = VAV(data[key])
 #     inst.find_rogue_pressure()
-inst = VAV(data['S2-18'], 'Dual')
-print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
+print int(inst._query_data('CTL_STPT', '4/1/2014','5/1/2014', '5Min').min())
+print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
 
