@@ -10,9 +10,9 @@ def addrKeyCombine(addr, key):
 def getConfigInfo(configName):
     cnfg = ConfigParser.ConfigParser()
     cnfg.read(configName)
-    serverAddr = cnfg.get('info', 'serverAddr')
-    serverKey = cnfg.get('info','serverKey')
-    jsonFile = cnfg.get('info', 'jsonFile')
+    serverAddr = cnfg.get('sysID', 'client')
+    serverKey = cnfg.get('sysID','key')
+    jsonFile = cnfg.get('sysID', 'input')
 
     return serverAddr, serverKey, jsonFile
 
