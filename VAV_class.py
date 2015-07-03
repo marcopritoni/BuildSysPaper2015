@@ -125,7 +125,6 @@ class VAV:
                 retVal = 0
             else:
                 retVal = sum(newList)/float(len(newList))
-        print str(len(fullGrouping.index)) + " : " + str(len(newList))
         return retVal
 
 
