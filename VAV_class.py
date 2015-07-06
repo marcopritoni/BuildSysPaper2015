@@ -11,9 +11,11 @@ import sys
 # Make these class variables into a dictionary to make it concise.
 
 class VAV:
-    def __init__(self, sensors, temp_control_type):
+    def __init__(self, sensors, temp_control_type, var):
         self.sensors = sensors
         self.temp_control_type = temp_control_type
+        self.var = var
+
 
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
         client_obj = SmapClient("http://new.openbms.org/backend")
@@ -33,6 +35,7 @@ class VAV:
         pos_table = pos_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
         return pos_table
 
+    # Start rogue pressure function
     def _find_rogue_pressure(self, date_start, date_end, interpolation_time, threshold=95):
         if threshold is None:
             threshold = 95
@@ -41,7 +44,9 @@ class VAV:
         count = float(table.where(table[['Reading']] >= threshold).count())
         percent = (count / total) * 100
         return percent
+    # End rogue pressure function
 
+    # Start Rogue Temp heat function
     def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time, threshold=3):
         if threshold is None:
             threshold = 3
@@ -49,7 +54,12 @@ class VAV:
             print 'nothing'
 
         elif self.temp_control_type == 'Single':
-            print 'nothing'
+             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + self.var
+             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             total = float(roomTemp.count())
+             count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
+             percent = (count / total) * 100
+             return percent
 
         elif self.temp_control_type == 'Current':
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
@@ -63,20 +73,23 @@ class VAV:
 
         else:
             print 'unrecognized temperature control type'
+    # End Rogue Temp heat function
 
-
-        # TODO- get correct setpoints depending on temp control type
-        # TODO- query correctly depending on temp control type
-        # TODO- analyze depending on temp control type
-
+    # Start Rogue Temp Cool Function
     def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time, threshold=3):
         if threshold is None:
             threshold = 3
         if self.temp_control_type == 'Dual':
-            print 'nothing'
+             table = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time)
+             table2 = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
 
         elif self.temp_control_type == 'Single':
-            print 'nothing'
+             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - self.var
+             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             total = float(roomTemp.count())
+             count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
+             percent = (count / total) * 100
+             return percent
 
         elif self.temp_control_type == 'Current':
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
@@ -90,10 +103,9 @@ class VAV:
 
         else:
             print 'unrecognized temperature control type'
-        # TODO- get correct setpoints depending on temp control type
-        # TODO- query correctly depending on temp control type
-        # TODO- analyze depending on temp control type
+    # End Rogue Temp Cool Function
 
+    # Start Find Rogue
     def find_rogue(self, rogue_type, threshold = None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min'):
         if rogue_type == 'Pressure':
             return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold)
@@ -104,8 +116,7 @@ class VAV:
         else:
             print rogue_type + ' is not a valid option for rogue_type'
 
-# _query_data(self, sensor_name, start_date, end_date, interpolation_time)
-# (self, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData, combineType='sum'):
+    # End Find Rogue
 
     def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', combineType='avg'):
         if not combineType in ['sum', 'avg']:
@@ -153,6 +164,7 @@ class VAV:
         return retVal
 
 
+# Begin Test Script
 
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
