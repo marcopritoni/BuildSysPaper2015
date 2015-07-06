@@ -8,13 +8,12 @@ import json
 import quantities as pq
 import sys
 
-# Make these class variables into a dictionary to make it concise.
+# Begin VAV class definition
 
 class VAV:
     def __init__(self, sensors, temp_control_type):
         self.sensors = sensors
         self.temp_control_type = temp_control_type
-
 
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
         client_obj = SmapClient("http://new.openbms.org/backend")
@@ -23,10 +22,10 @@ class VAV:
             return
         
         if start_date is None and end_date is None:
-            print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+            #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
             x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
         else:
-            print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+            #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
             x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
         pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', 'Reading'])
         pos_table['Time'] = pd.to_datetime(pos_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
@@ -46,7 +45,7 @@ class VAV:
     # End rogue pressure function
 
     # Start Rogue Temp heat function
-    def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time, threshold=3):
+    def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time='5Min', threshold=3):
         if threshold is None:
             threshold = 3
         if self.temp_control_type == 'Dual':
@@ -80,7 +79,7 @@ class VAV:
     # End Rogue Temp heat function
 
     # Start Rogue Temp Cool Function
-    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time, threshold=3):
+    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time='5Min', threshold=3):
         if threshold is None:
             threshold = 3
         if self.temp_control_type == 'Dual':
@@ -114,8 +113,13 @@ class VAV:
             print 'unrecognized temperature control type'
     # End Rogue Temp Cool Function
 
+    def find_rogue_temps(self, date_start, date_end, interpolation_time='5Min', threshold=3):
+        heats = self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
+        cools = self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
+        return [heats, cools]
+
     # Start Find Rogue
-    def find_rogue(self, rogue_type, threshold = None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min'):
+    def find_rogue(self, rogue_type, threshold=None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min'):
         if rogue_type == 'Pressure':
             return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold)
         elif rogue_type == 'Tempc':
@@ -184,12 +188,10 @@ with open('SDaiLimited.json') as data_file:
 #     inst.find_rogue_pressure()
 
 inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
-print int(inst._query_data('CTL_STPT', '4/1/2014','5/1/2014', '5Min').min())
 print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
+print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
-inst = VAV(data['S2-18'], 'Dual')
 testThermLoad = VAV(data['S2-12'], 'Dual')
-print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
 av = testThermLoad.calcRoomThermLoad(None, None, '5min', 'avg')
 sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 'sum')
 print "Avg: " + str(av) + ", Sum: " + str(sm)
