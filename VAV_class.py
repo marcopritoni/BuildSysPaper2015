@@ -13,7 +13,18 @@ class AHU:
     def __init__(self):
         pass
 
+
+def nextFormula():
+    flow = flowValue * (pq.ft**3 / pq.minute)
+    flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
+    flowTemp = (flowTempValue * pq.degF).rescale('degC')
+    sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
+    temp = flowTemp - sourceTemp
+    calcVal = temp * flow
+
+
 # Begin VAV class definition
+
 
 class VAV:
     def __init__(self, sensors, temp_control_type):
@@ -137,18 +148,15 @@ class VAV:
 
     # End Find Rogue
 
-    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', lim=1000, combineType='avg'):
-        if not combineType in ['sum', 'avg', 'raw']:
-            print "ERROR: combineType value " + combineType + \
-                  " not recognised. Exiting."
-            sys.exit()
-
-
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=lim)
+    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False): #combineType='avg'):
+        if not (avgVals or sumVals or rawVals):
+            print "Warning: no return type marked as true. Defaulting to avgVals."
+            avgVals = True
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
         temprFlowStrDt.columns = ['temprFlow']
-        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=lim)
+        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
         roomTemprStrDt.columns = ['roomTempr']
-        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=lim)
+        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
         volAirFlowStrDt.columns = ['volAirFlow']
 
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
@@ -171,18 +179,18 @@ class VAV:
         frMetric = flowRate.rescale(pq.CompoundUnit('meter**3/second'))
         load = (temprDiff * frMetric * RHO * C).rescale('W')
         
-
+        retDict = {}
         newList = list([float(e) for e in load])
-        if combineType == 'sum':
-            retVal = sum(newList)
-        elif combineType == 'avg':
+        if sumVals:
+            retDict['Sum'] = sum(newList)
+        if avgVals:
             if len(newList) == 0:
-                retVal = 0
+                retDict['Avg'] = 0
             else:
-                retVal = sum(newList)/float(len(newList))
-        elif combineType == 'raw':
-            retVal = {'Time':list(fullGrouping.index), 'Value':newList}
-        return retVal
+                retDict['Avg'] = sum(newList)/float(len(newList))
+        if rawVals:
+            retDict['Raw'] = {'Time':list(fullGrouping.index), 'Value':newList}
+        return retDict
 
 
 # Begin Test Script
@@ -201,9 +209,10 @@ print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
 testThermLoad = VAV(data['S2-12'], 'Dual')
 print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
-av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
-sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
-rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
+valsDict = testThermLoad.calcRoomThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
+av = valsDict['Avg']
+sm = valsDict['Sum']
+rw = valsDict['Raw']
 print "Avg: " + str(av) + ", Sum: " + str(sm)
 for t, v in zip(rw['Time'], rw['Value']):
     print str(t) + " <<<>>> " + str(v)
