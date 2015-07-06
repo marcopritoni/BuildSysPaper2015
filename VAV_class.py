@@ -1,4 +1,4 @@
-__author__ = 'Miguel', 'Ian'
+__author__ = 'Miguel'
 
 from smap.archiver.client import SmapClient
 import pandas as pd
@@ -10,13 +10,11 @@ import sys
 
 # Begin VAV class definition
 
-
 class VAV:
     def __init__(self, sensors, temp_control_type):
         self.sensors = sensors
         self.temp_control_type = temp_control_type
 
-    # Start query data
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None:
@@ -34,7 +32,6 @@ class VAV:
         pos_table.set_index('Time', inplace=True)
         pos_table = pos_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
         return pos_table
-    # End query data
 
     # Start rogue pressure function
     def _find_rogue_pressure(self, date_start, date_end, interpolation_time, threshold=95):
@@ -131,6 +128,7 @@ class VAV:
             return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
         else:
             print rogue_type + ' is not a valid option for rogue_type'
+
     # End Find Rogue
 
     def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', combineType='avg'):
@@ -190,12 +188,10 @@ with open('SDaiLimited.json') as data_file:
 #     inst.find_rogue_pressure()
 
 inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
-print inst.find_rogue('Temph',None, '4/1/2014', '5/1/2014', '5Min')
+print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
 print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
 testThermLoad = VAV(data['S2-12'], 'Dual')
 av = testThermLoad.calcRoomThermLoad(None, None, '5min', 'avg')
 sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 'sum')
 print "Avg: " + str(av) + ", Sum: " + str(sm)
-
-
