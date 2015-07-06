@@ -137,18 +137,18 @@ class VAV:
 
     # End Find Rogue
 
-    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', combineType='avg'):
-        if not combineType in ['sum', 'avg']:
+    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', lim=1000, combineType='avg'):
+        if not combineType in ['sum', 'avg', 'raw']:
             print "ERROR: combineType value " + combineType + \
                   " not recognised. Exiting."
             sys.exit()
 
 
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=10000)
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=lim)
         temprFlowStrDt.columns = ['temprFlow']
-        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=10000)
+        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=lim)
         roomTemprStrDt.columns = ['roomTempr']
-        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=10000)
+        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=lim)
         volAirFlowStrDt.columns = ['volAirFlow']
 
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
@@ -180,6 +180,8 @@ class VAV:
                 retVal = 0
             else:
                 retVal = sum(newList)/float(len(newList))
+        elif combineType == 'raw':
+            retVal = {'Time':list(fullGrouping.index), 'Value':newList}
         return retVal
 
 
@@ -199,7 +201,10 @@ print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
 testThermLoad = VAV(data['S2-12'], 'Dual')
 print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
-av = testThermLoad.calcRoomThermLoad(None, None, '5min', 'avg')
-sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 'sum')
+av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
+sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
+rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
 print "Avg: " + str(av) + ", Sum: " + str(sm)
+for t, v in zip(rw['Time'], rw['Value']):
+    print str(t) + " <<<>>> " + str(v)
 
