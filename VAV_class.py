@@ -11,10 +11,9 @@ import sys
 # Make these class variables into a dictionary to make it concise.
 
 class VAV:
-    def __init__(self, sensors, temp_control_type, var):
+    def __init__(self, sensors, temp_control_type):
         self.sensors = sensors
         self.temp_control_type = temp_control_type
-        self.var = var
 
 
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
@@ -51,10 +50,15 @@ class VAV:
         if threshold is None:
             threshold = 3
         if self.temp_control_type == 'Dual':
-            print 'nothing'
+             stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time) + threshold
+             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             total = float(roomTemp.count())
+             count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
+             percent = (count / total) * 100
+             return percent
 
         elif self.temp_control_type == 'Single':
-             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + self.var
+             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
              count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
@@ -80,11 +84,16 @@ class VAV:
         if threshold is None:
             threshold = 3
         if self.temp_control_type == 'Dual':
-             table = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time)
-             table2 = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
+             stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
+             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             total = float(roomTemp.count())
+             count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
+             percent = (count / total) * 100
+             return percent
+
 
         elif self.temp_control_type == 'Single':
-             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - self.var
+             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
              count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
