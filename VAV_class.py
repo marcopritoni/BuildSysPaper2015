@@ -9,8 +9,6 @@ import quantities as pq
 import sys
 
 
-
-
 class AHU:
     def __init__(self):
         pass
