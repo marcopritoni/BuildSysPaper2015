@@ -10,6 +10,12 @@ import sys
 
 # Make these class variables into a dictionary to make it concise.
 
+
+class AHU:
+    def __init__(self):
+        pass
+
+
 class VAV:
     def __init__(self, sensors, temp_control_type):
         self.sensors = sensors
@@ -82,18 +88,18 @@ class VAV:
 # _query_data(self, sensor_name, start_date, end_date, interpolation_time)
 # (self, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData, combineType='sum'):
 
-    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', combineType='avg'):
-        if not combineType in ['sum', 'avg']:
+    def calcRoomThermLoad(self, start_date=None, end_date=None, lim=1000, interpolation_time='5min', combineType='avg'):
+        if not combineType in ['sum', 'avg', 'raw']:
             print "ERROR: combineType value " + combineType + \
                   " not recognised. Exiting."
             sys.exit()
 
 
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=10000)
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=lim)
         temprFlowStrDt.columns = ['temprFlow']
-        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=10000)
+        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=lim)
         roomTemprStrDt.columns = ['roomTempr']
-        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=10000)
+        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=lim)
         volAirFlowStrDt.columns = ['volAirFlow']
 
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
@@ -125,6 +131,10 @@ class VAV:
                 retVal = 0
             else:
                 retVal = sum(newList)/float(len(newList))
+        elif combineType == 'raw':
+            tList = list(fullGrouping.index)
+            retVal = {'Time':tList, 'Value':newList}
+            
         return retVal
 
 
@@ -139,7 +149,10 @@ with open('SDaiLimited.json') as data_file:
 inst = VAV(data['S2-18'], 'Dual')
 testThermLoad = VAV(data['S2-12'], 'Dual')
 print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
-av = testThermLoad.calcRoomThermLoad(None, None, '5min', 'avg')
-sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 'sum')
+av = testThermLoad.calcRoomThermLoad(None, None, 10000, '5min', 'avg')
+sm = testThermLoad.calcRoomThermLoad(None, None, 10000, '5min', 'sum')
+rw = testThermLoad.calcRoomThermLoad(None, None, 10000, '5min', 'raw')
 print "Avg: " + str(av) + ", Sum: " + str(sm)
+#for i in range(len(rw['Time'])):
+#    print str(rw['Time'][i]) + ' <<<>>> ' + str(rw['Value'][i])
 
