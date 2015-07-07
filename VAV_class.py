@@ -7,21 +7,28 @@ from ConfigParser import ConfigParser
 import json
 import quantities as pq
 import sys
+import VavDataReader
 
 
 class AHU:
-    def __init__(self):
-        pass
+    def __init__(self, SAT_ID, SetPt_ID, coveredVAVs):
+        self.uuidSAT = SAT_ID
+        self.uuidSetPt = SetPt_ID
 
 
-def nextFormula():
-    for flowValue, flowTempValue, sourceTempFalue in zip(a, b, c):
+def reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None):
+    RHO = 1.2005 * pq.kg/pq.m**3
+    C = 1005.0 * pq.J/(pq.kg*pq.degC)
+    flowTemp = (flowTempValue * pq.degF).rescale('degC')
+    sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
+    temp = flowTemp - sourceTemp
+    if not flowValue is None:
         flow = flowValue * (pq.ft**3 / pq.minute)
         flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
-        flowTemp = (flowTempValue * pq.degF).rescale('degC')
-        sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
-        temp = flowTemp - sourceTemp
-        calcVal = temp * flow
+        calcVal = (temp * flow * RHO * C).rescale('W')
+    else:
+        calcVal = temp
+    return float(calcVal)
 
 
 # Begin VAV class definition
@@ -32,18 +39,24 @@ class VAV:
         self.sensors = sensors
         self.temp_control_type = temp_control_type
 
-    def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
+    def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100, externalID=None):
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None:
             print 'no ' + sensor_name + ' info'
             return None
-        
+
+
+        if externalID is None:
+            sensorID = self.sensors.get(sensor_name)[0]
+        else:
+            sensorID = external
         if start_date is None and end_date is None:
             #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-            x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+            # x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+            x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
         else:
             #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-            x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+            x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
         pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', sensor_name])
         pos_table['Time'] = pd.to_datetime(pos_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
         pos_table.set_index('Time', inplace=True)
@@ -149,9 +162,9 @@ class VAV:
 
     # End Find Rogue
 
-    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False): #combineType='avg'):
+    def calcThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False):
         if not (avgVals or sumVals or rawVals):
-            print "Warning: no return type marked as true. Defaulting to avgVals."
+            print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
         temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
         temprFlowStrDt.columns = ['temprFlow']
@@ -194,11 +207,56 @@ class VAV:
         return retDict
 
 
+    # NOTE: Returns in degrees celcius
+    def calcDelta(self, AHU, start_date=None, end_date=None, interpolation_time='5min', limit=1000):
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+        temprFlowStrDt.columns = ['temprFlow']
+        sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=AHU.uuidSAT)
+        sourceTemprStrDt.columns = ['sourceTempr']
+        vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
+        vlvPosStrDt.columns = ['vlvPos']
+
+        intermediate = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
+        fullGrouping = intermediate.merge(vlvPosStrDt, right_index=True, left_index=True)
+        
+        temprFlowStreamData  = list(fullGrouping['temprFlow'])
+        sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
+        vlvPosStreamData = list(fullGrouping['vlvPosAirFlow'])
+
+        total = 0
+        accum = 0
+
+        for f, s, v in zip(temprFlowStreamData, sourceTemprStreamData, vlvPosStreamData):
+            if v == 0:
+                accum += reheatCalcSingle(f, s)
+                total += 1
+
+        if total == 0:
+            return 0
+        
+        return accum / total
+
+
+    
+    def calcReheat(self, AHU, delta, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False, omitVlvOff=False):
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+        temprFlowStrDt.columns = ['temprFlow']
+        sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=AHU.uuidSAT)
+        sourceTemprStrDt.columns = ['sourceTempr']
+        vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
+        vlvPosStrDt.columns = ['vlvPos']
+        f
+
+        RHO = 1.2005 * pq.kg/pq.m**3
+        C = 1005.0 * pq.J/(pq.kg*pq.degC)
+
+
 # Begin Test Script
 
 # read in the entire json, get as a dict
-with open('SDaiLimited.json') as data_file:
-    data = json.load(data_file)
+#with open('SDaiLimited.json') as data_file:
+#    data = json.load(data_file)
+data = VavDataReader.importVavData()
 pressures = pd.DataFrame()
 for key in data.keys():
     inst = VAV(data[key], 'Current')
@@ -207,6 +265,7 @@ for key in data.keys():
 
 print pressures
 pressures.plot(kind='hist')
+
 #inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
 #print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
 #print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
@@ -227,7 +286,7 @@ print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
 testThermLoad = VAV(data['S2-12'], 'Dual')
 print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
-valsDict = testThermLoad.calcRoomThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
+valsDict = testThermLoad.calcThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
 av = valsDict['Avg']
 sm = valsDict['Sum']
 rw = valsDict['Raw']
