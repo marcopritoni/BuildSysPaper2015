@@ -36,7 +36,7 @@ class VAV:
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None:
             print 'no ' + sensor_name + ' info'
-            return
+            return None
         
         if start_date is None and end_date is None:
             #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
@@ -44,7 +44,7 @@ class VAV:
         else:
             #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
             x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
-        pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', 'Reading'])
+        pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', sensor_name])
         pos_table['Time'] = pd.to_datetime(pos_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
         pos_table.set_index('Time', inplace=True)
         pos_table = pos_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
@@ -55,8 +55,10 @@ class VAV:
         if threshold is None:
             threshold = 95
         table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
+        if table is None:
+            return None
         total = float(table.count())
-        count = float(table.where(table[['Reading']] >= threshold).count())
+        count = float(table.where(table[['DMPR_POS']] >= threshold).count())
         percent = (count / total) * 100
         return percent
     # End rogue pressure function
@@ -69,7 +71,7 @@ class VAV:
              stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['HEAT_STPT']] >= threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -77,7 +79,7 @@ class VAV:
              stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['STPT']] >= threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -85,9 +87,9 @@ class VAV:
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
             stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).min())
-            roomTemp = roomTemp.where(table[['Reading']] == 1)
+            roomTemp = roomTemp.where(table[['HEAT.COOL']] == 1)
             total = float(roomTemp.count())
-            count = float(roomTemp.where(roomTemp[['Reading']] - stpt >= threshold).count())
+            count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt >= threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -103,17 +105,15 @@ class VAV:
              stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(stpt[['COOL_STPT']] - roomTemp[['ROOM_TEMP']] >= threshold).count())
              percent = (count / total) * 100
              return percent
-
-       
 
         elif self.temp_control_type == 'Single':
              stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(stpt[['STPT']] - roomTemp[['ROOM_TEMP']] >= threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -121,9 +121,9 @@ class VAV:
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
             stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).max())
-            roomTemp = roomTemp.where(table[['Reading']] == 1)
+            roomTemp = roomTemp.where(table[['HEAT.COOL']] == 1)
             total = float(roomTemp.count())
-            count = float(roomTemp.where(stpt - roomTemp[['Reading']] >= threshold).count())
+            count = float(roomTemp.where(stpt - roomTemp[['ROOM_TEMP']] >= threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -199,10 +199,27 @@ class VAV:
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
     data = json.load(data_file)
+pressures = pd.DataFrame()
+for key in data.keys():
+    inst = VAV(data[key], 'Current')
+    value = inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+    pressures[key] = [value]
+
+print pressures
+pressures.plot(kind='hist')
+#inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
+#print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
+#print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
+
+# testThermLoad = VAV(data['S2-12'], 'Dual')
+# av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
+# sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
+# rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
+# print "Avg: " + str(av) + ", Sum: " + str(sm)
+# for t, v in zip(rw['Time'], rw['Value']):
+#     print str(t) + " <<<>>> " + str(v)
 #
-# for key in data.keys():
-#     inst = VAV(data[key])
-#     inst.find_rogue_pressure()
+
 
 inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
 print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
