@@ -1,5 +1,4 @@
 from smap.archiver.client import SmapClient # Used for querying database.
-import csv
 import ConfigParser # Used to collect information from the config file.
 import copy # Used to deepcopy dictionaries
 import json # Used to output JSON file.
@@ -34,7 +33,9 @@ class Collection:
     #   True if this is the master Collection.
     #   False otherwise.
 
-    
+
+    # Initializes a collection object. If streams list is specified, constructs
+    # entire hierarchy from that list, with this instance as the master.
     def __init__(self, streams=None):
         self.subCollections = {}
         self.streamRefs = []
@@ -58,11 +59,16 @@ class Collection:
     # Constructs collection hierarchy from list of streams dicts.
     def _constructFromList(self, streams):
         self.subCollections = {}
-        allColls = []
+        allColls = [] # List of refs to all collections.
 
         # Construct overall hierarchy from list of streams
         for stream in streams:
-            collRef = self
+            collRef = self # references the current collection. Starts at master
+                           # and descends through subcollections on each
+                           # iteration.
+            # Split path into list with the delimeter '/'.
+            # If there is an empty string at the beginning of the list,
+            # remove it.
             splitPath = stream['Path'].split('/')
             if not splitPath[0]:
                 splitPath = splitPath[1:]
@@ -84,7 +90,8 @@ class Collection:
 
         self.refList = [self] + allColls
         self._recursiveStreamRefs()
-        # Move redundant tags to parent collections
+        # Move tags that are universal and identical across a given collection,
+        # to that collection.
         self._graduateTags()
     # END: def _constructFromList(self, streams)
 
@@ -260,14 +267,18 @@ class Collection:
             print "Error: fullDict must be called from master Collection" \
                   "object. Exiting."
             sys.exit()
+        # END: if not self.master
 
         for coll in self.refList:
             retDict[coll.path] = {}
             curDict = retDict[coll.path]
             if not coll.isStream:
                 curDict['Contents'] = list(coll.subCollections.keys())
+            # END: if not coll.isStream
             for tag in coll.tags:
                 curDict[tag] = coll.tags[tag]
+            # END: for tag in coll.tags
+        # END: for coll in self.refList
 
         return retDict
     # END: def asFullDict(self)
@@ -278,6 +289,7 @@ class Collection:
 def dictToJson(d, outputFile):
     with open(outputFile, 'w') as f:
         json.dump(d, f, indent=5)
+    # END: with open(outputFile, 'w') as f
     f.close()
 # END: def dictToJson(d)
 
@@ -292,8 +304,12 @@ def makeFlatTagDict(d):
             curDict = makeFlatTagDict(d[key])
             for subKey in curDict:
                 newDict[key + '/' + subKey] = curDict[subKey]
+            # END: for subKey in curDict
+        # END: if type(d[key]) is dict
         else:
             newDict[key] = d[key]
+        # END: else
+    # END: for key in d
 
     return newDict
 # END: def makeFlatTagDict(d)
@@ -317,9 +333,11 @@ def deepenTagDict(d):
         for part in splitKey:
             if not part in newRef:
                 newRef[part] = {}
+            # END: if not part in newRef
             prevRef = newRef
             newRef = newRef[part]
             lastPart = part
+        # END: for part in splitKey
             
         prevRef[lastPart] = d[key]
 
@@ -339,19 +357,24 @@ def getConfigInfo(fName):
     endDate = cnfg.get('sysID', 'end')
     if startDate == 'None':
         startDate = None
+    # END: if startDate == 'None'
     if endDate == 'None':
         endDate = None
+    # END: if endDate == None
     limit = cnfg.get('sysID', 'limit')
 
     return serverName, whereClause, outputFileName, startDate, endDate, limit
 # END: def getConfigInfo(fName)
 
 
+# Gets command line argument and returns it. If not exactly one argument after
+# the program name, output error and exit.
 def readCommandLine():
     if len(sys.argv) != 2:
         print "Improper arguments used. Format:"
         print "python " + sys.argv[0] + " <config file name>"
         sys.exit()
+    # END: if len(sys.argv) != 2
 
     return sys.argv[1]
 # END: def readCommandLine
