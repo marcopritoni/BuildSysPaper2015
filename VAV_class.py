@@ -24,7 +24,7 @@ class VAV:
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None:
             print 'no ' + sensor_name + ' info'
-            return
+            return None
         
         if start_date is None and end_date is None:
             #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
@@ -43,6 +43,8 @@ class VAV:
         if threshold is None:
             threshold = 95
         table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
+        if table is None:
+            return None
         total = float(table.count())
         count = float(table.where(table[['Reading']] >= threshold).count())
         percent = (count / total) * 100
@@ -190,21 +192,24 @@ class VAV:
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
     data = json.load(data_file)
-#
-# for key in data.keys():
-#     inst = VAV(data[key])
-#     inst.find_rogue_pressure()
 
-inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
-print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
-print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
+pressures = pd.DataFrame()
+for key in data.keys():
+    inst = VAV(data[key], 'Current')
+    value = inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+    pressures[key] = [value]
 
-testThermLoad = VAV(data['S2-12'], 'Dual')
-print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
-av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
-sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
-rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
-print "Avg: " + str(av) + ", Sum: " + str(sm)
-for t, v in zip(rw['Time'], rw['Value']):
-    print str(t) + " <<<>>> " + str(v)
+print pressures
+pressures.plot(kind='hist')
+#inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
+#print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
+#print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
+
+# testThermLoad = VAV(data['S2-12'], 'Dual')
+# av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
+# sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
+# rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
+# print "Avg: " + str(av) + ", Sum: " + str(sm)
+# for t, v in zip(rw['Time'], rw['Value']):
+#     print str(t) + " <<<>>> " + str(v)
 
