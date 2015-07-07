@@ -31,7 +31,7 @@ class VAV:
         self.sensors = sensors
         self.temp_control_type = temp_control_type
 
-    def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=100):
+    def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=-1):
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None:
             print 'no ' + sensor_name + ' info'
@@ -39,15 +39,15 @@ class VAV:
         
         if start_date is None and end_date is None:
             #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-            x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+            q = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
         else:
             #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-            x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
-        pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', sensor_name])
-        pos_table['Time'] = pd.to_datetime(pos_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
-        pos_table.set_index('Time', inplace=True)
-        pos_table = pos_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
-        return pos_table
+            q = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+        data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensor_name])
+        data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
+        data_table.set_index('Time', inplace=True)
+        data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+        return data_table
 
     # Start rogue pressure function
     def _find_rogue_pressure(self, date_start, date_end, interpolation_time, threshold=95):
@@ -69,6 +69,10 @@ class VAV:
         if self.temp_control_type == 'Dual':
              stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if stpt is None:
+                 return None
+             if roomTemp is None:
+                 return None
              total = float(roomTemp.count())
              count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['HEAT_STPT']] >= threshold).count())
              percent = (count / total) * 100
@@ -77,6 +81,10 @@ class VAV:
         elif self.temp_control_type == 'Single':
              stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if stpt is None:
+                 return None
+             if roomTemp is None:
+                 return None
              total = float(roomTemp.count())
              count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['STPT']] >= threshold).count())
              percent = (count / total) * 100
@@ -85,10 +93,18 @@ class VAV:
         elif self.temp_control_type == 'Current':
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-            stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).min())
-            roomTemp = roomTemp.where(table[['HEAT.COOL']] == 1)
-            total = float(roomTemp.count())
-            count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt >= threshold).count())
+            stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
+            if table is None:
+                return None
+            if stpt is None:
+                 return None
+            if roomTemp is None:
+                 return None
+            stpt = int(stpt.min())
+            new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
+            new_table = new_table.where(new_table[['HEAT.COOL']] == 1, new_table).fillna(new_table[['ROOM_TEMP']].mean())
+            total = float(new_table[['ROOM_TEMP']].count())
+            count = float(new_table[['ROOM_TEMP']].where(new_table[['ROOM_TEMP']] - stpt >= threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -119,10 +135,18 @@ class VAV:
         elif self.temp_control_type == 'Current':
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-            stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).max())
-            roomTemp = roomTemp.where(table[['HEAT.COOL']] == 1)
-            total = float(roomTemp.count())
-            count = float(roomTemp.where(stpt - roomTemp[['ROOM_TEMP']] >= threshold).count())
+            stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
+            if table is None:
+                return None
+            if stpt is None:
+                 return None
+            if roomTemp is None:
+                 return None
+            stpt = int(stpt.max())
+            new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
+            new_table = new_table.where(new_table[['HEAT.COOL']] == 0, new_table).fillna(new_table[['ROOM_TEMP']].mean())
+            total = float(new_table[['ROOM_TEMP']].count())
+            count = float(new_table[['ROOM_TEMP']].where(stpt - new_table[['ROOM_TEMP']] >= threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -130,18 +154,18 @@ class VAV:
             print 'unrecognized temperature control type'
     # End Rogue Temp Cool Function
 
-    def find_rogue_temps(self, date_start, date_end, interpolation_time='5Min', threshold=3):
+    def find_rogue_temps(self, date_start, date_end, interpolation_time='5Min', threshold=None):
         heats = self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
         cools = self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
         return [heats, cools]
 
     # Start Find Rogue
     def find_rogue(self, rogue_type, threshold=None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min'):
-        if rogue_type == 'Pressure':
+        if rogue_type == 'pressure':
             return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold)
-        elif rogue_type == 'Tempc':
+        elif rogue_type == 'temp_cool':
             return self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
-        elif rogue_type == 'Temph':
+        elif rogue_type == 'temp_heat':
             return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
         else:
             print rogue_type + ' is not a valid option for rogue_type'
@@ -201,14 +225,8 @@ with open('SDaiLimited.json') as data_file:
 pressures = pd.DataFrame()
 for key in data.keys():
     inst = VAV(data[key], 'Current')
-    value = inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+    value = inst.find_rogue('temp_heat', date_start='4/1/2015', date_end='5/1/2015')
     pressures[key] = [value]
-
-print pressures
-pressures.plot(kind='hist')
-#inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
-#print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
-#print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
 # testThermLoad = VAV(data['S2-12'], 'Dual')
 # av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
@@ -220,12 +238,13 @@ pressures.plot(kind='hist')
 #
 
 
-inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
-print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
+inst = VAV(data['S2-12'], 'Current')  # only for sdj hall
+print inst.find_rogue('temp_heat', None, '4/1/2014', '5/1/2014', '5Min') ## need to find out why removing None messes it up
+print inst.find_rogue('temp_cool', None, '4/1/2014', '5/1/2014', '5Min')
 print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
 
 testThermLoad = VAV(data['S2-12'], 'Dual')
-print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+print inst.find_rogue('pressure', date_start='4/1/2014', date_end='5/1/2014')
 valsDict = testThermLoad.calcRoomThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
 av = valsDict['Avg']
 sm = valsDict['Sum']
