@@ -15,12 +15,13 @@ class AHU:
 
 
 def nextFormula():
-    flow = flowValue * (pq.ft**3 / pq.minute)
-    flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
-    flowTemp = (flowTempValue * pq.degF).rescale('degC')
-    sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
-    temp = flowTemp - sourceTemp
-    calcVal = temp * flow
+    for flowValue, flowTempValue, sourceTempFalue in zip(a, b, c):
+        flow = flowValue * (pq.ft**3 / pq.minute)
+        flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
+        flowTemp = (flowTempValue * pq.degF).rescale('degC')
+        sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
+        temp = flowTemp - sourceTemp
+        calcVal = temp * flow
 
 
 # Begin VAV class definition
