@@ -13,7 +13,18 @@ class AHU:
     def __init__(self):
         pass
 
+
+def nextFormula():
+    flow = flowValue * (pq.ft**3 / pq.minute)
+    flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
+    flowTemp = (flowTempValue * pq.degF).rescale('degC')
+    sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
+    temp = flowTemp - sourceTemp
+    calcVal = temp * flow
+
+
 # Begin VAV class definition
+
 
 class VAV:
     def __init__(self, sensors, temp_control_type):
@@ -32,7 +43,7 @@ class VAV:
         else:
             #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
             x = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
-        pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', 'Reading'])
+        pos_table = pd.DataFrame(x[0]['Readings'], columns=['Time', sensor_name])
         pos_table['Time'] = pd.to_datetime(pos_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
         pos_table.set_index('Time', inplace=True)
         pos_table = pos_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
@@ -46,7 +57,7 @@ class VAV:
         if table is None:
             return None
         total = float(table.count())
-        count = float(table.where(table[['Reading']] >= threshold).count())
+        count = float(table.where(table[['DMPR_POS']] >= threshold).count())
         percent = (count / total) * 100
         return percent
     # End rogue pressure function
@@ -59,7 +70,7 @@ class VAV:
              stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['HEAT_STPT']] >= threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -67,7 +78,7 @@ class VAV:
              stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(roomTemp[['Reading']] - stpt[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['STPT']] >= threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -75,9 +86,9 @@ class VAV:
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
             stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).min())
-            roomTemp = roomTemp.where(table[['Reading']] == 1)
+            roomTemp = roomTemp.where(table[['HEAT.COOL']] == 1)
             total = float(roomTemp.count())
-            count = float(roomTemp.where(roomTemp[['Reading']] - stpt >= threshold).count())
+            count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt >= threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -93,17 +104,15 @@ class VAV:
              stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(stpt[['COOL_STPT']] - roomTemp[['ROOM_TEMP']] >= threshold).count())
              percent = (count / total) * 100
              return percent
-
-       
 
         elif self.temp_control_type == 'Single':
              stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['Reading']] - roomTemp[['Reading']] >= threshold).count())
+             count = float(roomTemp.where(stpt[['STPT']] - roomTemp[['ROOM_TEMP']] >= threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -111,9 +120,9 @@ class VAV:
             table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
             stpt = int(self._query_data('CTL_STPT', date_start, date_end, interpolation_time).max())
-            roomTemp = roomTemp.where(table[['Reading']] == 1)
+            roomTemp = roomTemp.where(table[['HEAT.COOL']] == 1)
             total = float(roomTemp.count())
-            count = float(roomTemp.where(stpt - roomTemp[['Reading']] >= threshold).count())
+            count = float(roomTemp.where(stpt - roomTemp[['ROOM_TEMP']] >= threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -139,18 +148,15 @@ class VAV:
 
     # End Find Rogue
 
-    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', lim=1000, combineType='avg'):
-        if not combineType in ['sum', 'avg', 'raw']:
-            print "ERROR: combineType value " + combineType + \
-                  " not recognised. Exiting."
-            sys.exit()
-
-
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=lim)
+    def calcRoomThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False): #combineType='avg'):
+        if not (avgVals or sumVals or rawVals):
+            print "Warning: no return type marked as true. Defaulting to avgVals."
+            avgVals = True
+        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
         temprFlowStrDt.columns = ['temprFlow']
-        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=lim)
+        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
         roomTemprStrDt.columns = ['roomTempr']
-        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=lim)
+        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
         volAirFlowStrDt.columns = ['volAirFlow']
 
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
@@ -173,18 +179,18 @@ class VAV:
         frMetric = flowRate.rescale(pq.CompoundUnit('meter**3/second'))
         load = (temprDiff * frMetric * RHO * C).rescale('W')
         
-
+        retDict = {}
         newList = list([float(e) for e in load])
-        if combineType == 'sum':
-            retVal = sum(newList)
-        elif combineType == 'avg':
+        if sumVals:
+            retDict['Sum'] = sum(newList)
+        if avgVals:
             if len(newList) == 0:
-                retVal = 0
+                retDict['Avg'] = 0
             else:
-                retVal = sum(newList)/float(len(newList))
-        elif combineType == 'raw':
-            retVal = {'Time':list(fullGrouping.index), 'Value':newList}
-        return retVal
+                retDict['Avg'] = sum(newList)/float(len(newList))
+        if rawVals:
+            retDict['Raw'] = {'Time':list(fullGrouping.index), 'Value':newList}
+        return retDict
 
 
 # Begin Test Script
@@ -192,7 +198,6 @@ class VAV:
 # read in the entire json, get as a dict
 with open('SDaiLimited.json') as data_file:
     data = json.load(data_file)
-
 pressures = pd.DataFrame()
 for key in data.keys():
     inst = VAV(data[key], 'Current')
@@ -212,4 +217,20 @@ pressures.plot(kind='hist')
 # print "Avg: " + str(av) + ", Sum: " + str(sm)
 # for t, v in zip(rw['Time'], rw['Value']):
 #     print str(t) + " <<<>>> " + str(v)
+#
+
+
+inst = VAV(data['S2-18'], 'Current')  # only for sdj hall
+print inst.find_rogue('Temph',None, '4/1/2014','5/1/2014', '5Min')
+print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
+
+testThermLoad = VAV(data['S2-12'], 'Dual')
+print inst.find_rogue('Pressure', date_start='4/1/2014', date_end='5/1/2014')
+valsDict = testThermLoad.calcRoomThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
+av = valsDict['Avg']
+sm = valsDict['Sum']
+rw = valsDict['Raw']
+print "Avg: " + str(av) + ", Sum: " + str(sm)
+for t, v in zip(rw['Time'], rw['Value']):
+    print str(t) + " <<<>>> " + str(v)
 
