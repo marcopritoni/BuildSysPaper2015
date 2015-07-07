@@ -276,40 +276,99 @@ class VAV:
         C = 1005.0 * pq.J/(pq.kg*pq.degC)
 
 
+def readInput():
+    def errPrint(openingMessage):
+        print openingMessage
+        print "Args should be:"
+        print "python " + sys.argv[0] + " -j <filename>"
+        print "for json files, and"
+        print "python " + sys.argv[0] + " -c <filename>"
+        print "for config files."
+        print "Exiting."
+        
+    if len(sys.argv) < 2:
+        fType = raw_input("Use (j)son or (c)onfig file? ==> ")
+        if fType[0].lower() == 'j':
+            fType = 'j'
+        elif fType[0].lower() == 'c':
+            fType = 'c'
+        else:
+            print "Your input should start with a 'j' or 'c'. Exiting."
+            sys.exit()
+        fName = raw_input("Input filename ==> ")
+    elif len(sys.argv) == 2:
+        errPrint("You must specify which type of file you are using.")
+        sys.exit()
+    elif len(sys.argv) == 3:
+        if sys.argv[1][0] != '-' or \
+           (sys.argv[1][1] != 'j' and sys.argv[1][1] != 'c') or \
+           len(sys.argv[1]) != 2:
+            errPrint("File type specification argument not recognized.")
+            sys.exit()
+        else:
+            fType = sys.argv[1][1]
+            fName = sys.argv[2]
+    else:
+        errPrint("Too many arguments.")
+        sys.exit()
+
+    return fType, fName
+        
+    #if len(sys.argv) != 2:
+    #    print "Improper arguments used. Format:"
+    #    print "python " + sys.argv[0] + " <config file name>"
+    #    sys.exit()
+
+    # return sys.argv[1]
+
+
 # Begin Test Script
 
-# read in the entire json, get as a dict
-#with open('SDaiLimited.json') as data_file:
-#    data = json.load(data_file)
-data = VavDataReader.importVavData()
-pressures = pd.DataFrame()
-for key in data.keys():
-    inst = VAV(data[key], 'Current')
-    value = inst.find_rogue('temp_heat', date_start='4/1/2015', date_end='5/1/2015')
-    pressures[key] = [value]
 
-# testThermLoad = VAV(data['S2-12'], 'Dual')
-# av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
-# sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
-# rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
-# print "Avg: " + str(av) + ", Sum: " + str(sm)
-# for t, v in zip(rw['Time'], rw['Value']):
-#     print str(t) + " <<<>>> " + str(v)
-#
+def testScript(data):
+    pressures = pd.DataFrame()
+    for key in data.keys():
+        inst = VAV(data[key], 'Current')
+        value = inst.find_rogue('temp_heat', date_start='4/1/2015', date_end='5/1/2015')
+        pressures[key] = [value]
 
 
-inst = VAV(data['S2-12'], 'Current')  # only for sdj hall
-print inst.find_rogue('temp_heat', None, '4/1/2014', '5/1/2014', '5Min') ## need to find out why removing None messes it up
-print inst.find_rogue('temp_cool', None, '4/1/2014', '5/1/2014', '5Min')
-print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
+    # testThermLoad = VAV(data['S2-12'], 'Dual')
+    # av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
+    # sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
+    # rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
+    # print "Avg: " + str(av) + ", Sum: " + str(sm)
+    # for t, v in zip(rw['Time'], rw['Value']):
+    #     print str(t) + " <<<>>> " + str(v)
+    #
 
-testThermLoad = VAV(data['S2-12'], 'Dual')
-print inst.find_rogue('pressure', date_start='4/1/2014', date_end='5/1/2014')
-valsDict = testThermLoad.calcThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
-av = valsDict['Avg']
-sm = valsDict['Sum']
-rw = valsDict['Raw']
-print "Avg: " + str(av) + ", Sum: " + str(sm)
-for t, v in zip(rw['Time'], rw['Value']):
-    print str(t) + " <<<>>> " + str(v)
 
+    inst = VAV(data['S2-12'], 'Current')  # only for sdj hall
+    print inst.find_rogue('temp_heat', None, '4/1/2014', '5/1/2014', '5Min') ## need to find out why removing None messes it up
+    print inst.find_rogue('temp_cool', None, '4/1/2014', '5/1/2014', '5Min')
+    print inst.find_rogue_temps(date_start='4/1/2014', date_end='5/1/2014')
+
+    testThermLoad = VAV(data['S2-12'], 'Dual')
+    print inst.find_rogue('pressure', date_start='4/1/2014', date_end='5/1/2014')
+    valsDict = testThermLoad.calcThermLoad(limit=50, avgVals=True, sumVals=True, rawVals=True)
+    av = valsDict['Avg']
+    sm = valsDict['Sum']
+    rw = valsDict['Raw']
+    print "Avg: " + str(av) + ", Sum: " + str(sm)
+    for t, v in zip(rw['Time'], rw['Value']):
+        print str(t) + " <<<>>> " + str(v)
+
+
+def main():
+    inputFileType, inputFileName = readInput()
+
+    if inputFileType == 'j':
+        with open(inputFileName) as data_file:
+            data = json.load(data_file)
+    elif inputFileType == 'c':
+        data = VavDataReader.importVavData(inputFileName)
+
+    testScript(data)
+
+
+main()

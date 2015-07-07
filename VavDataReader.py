@@ -43,15 +43,6 @@ class SDaiParser:
 # END: class SDaiParser
 
 
-def readCommandLine():
-    if len(sys.argv) != 2:
-        print "Improper arguments used. Format:"
-        print "python " + sys.argv[0] + " <config file name>"
-        sys.exit()
-
-    return sys.argv[1]
-
-
 def getConfigInfo(fName):
     cnfg = ConfigParser.ConfigParser()
     cnfg.read(fName)
@@ -91,8 +82,8 @@ def dictToJson(d, outputFile):
     f.close()
 
 
-def importVavData():
-    servAddr, whereClause = getConfigInfo(readCommandLine())
+def importVavData(configFileName):
+    servAddr, whereClause = getConfigInfo(configFileName)
     q = queryData(servAddr, whereClause)
     dataDict = constructData(q, SDaiParser())
     return dataDict
