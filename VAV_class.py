@@ -8,6 +8,7 @@ import json
 import quantities as pq
 import sys
 import VavDataReader
+import csv
 
 
 class AHU:
@@ -33,6 +34,24 @@ def reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None, deltaT=None
         calcVal = temp
     return calcVal
 
+
+def getCSVFrame(fileName):
+    streamList = []
+    with open(fileName, 'rb') as inFile:
+        f = csv.reader(inFile)
+        for row in f:
+            streamList.append(row)
+    inFile.close()
+
+    wrapperDict = {'Readings':streamList}
+    q = [wrapperDict]
+
+    data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensor_name])
+    data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
+    data_table.set_index('Time', inplace=True)
+    data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+    return data_table
+    
 
 # Begin VAV class definition
 
@@ -65,6 +84,7 @@ class VAV:
         data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
         data_table.set_index('Time', inplace=True)
         data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+        # TODO: improve interpolation and dropna()
         return data_table
 
     # Start rogue pressure function
@@ -190,19 +210,32 @@ class VAV:
 
     # End Find Rogue
 
-    def calcThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False):
+    def calcThermLoad(self, start_date=None, end_date=None, \
+                      interpolation_time='5min', limit=1000, avgVals=False, \
+                      sumVals=False, rawVals=False, testInput=False):
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-        temprFlowStrDt.columns = ['temprFlow']
-        roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
-        roomTemprStrDt.columns = ['roomTempr']
-        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
-        volAirFlowStrDt.columns = ['volAirFlow']
+
+        if testInput:
+            temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
+            temprFlowStrDt.columns = ['temprFlow']
+            roomTemprStrDt  = getCSVFrame('roomTemprTest.csv')
+            roomTemprStrDt.columns = ['roomTempr']
+            volAirFlowStrDt = self.getCSVFrame('volAirFlowTest.csv')
+            volAirFlowStrDt.columns = ['volAirFlow']
+        else:
+            temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+            temprFlowStrDt.columns = ['temprFlow']
+            roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
+            roomTemprStrDt.columns = ['roomTempr']
+            volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+            volAirFlowStrDt.columns = ['volAirFlow']
 
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
         fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True)
+        # TODO: Additional interpolate
+        
         
         temprFlowStreamData  = list(fullGrouping['temprFlow'])
         roomTemprStreamData  = list(fullGrouping['roomTempr'])
@@ -236,13 +269,22 @@ class VAV:
 
 
     # NOTE: Returns in degrees celcius
-    def calcDelta(self, ahu, start_date=None, end_date=None, interpolation_time='5min', limit=1000):
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-        temprFlowStrDt.columns = ['temprFlow']
-        sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-        sourceTemprStrDt.columns = ['sourceTempr']
-        vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
-        vlvPosStrDt.columns = ['vlvPos']
+    def calcDelta(self, ahu, start_date=None, end_date=None, \
+                  interpolation_time='5min', limit=1000, testInput=False):
+        if testInput:
+            temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
+            temprFlowStrDt.columns = ['temprFlow']
+            sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
+            sourceTemprStrDt.columns = ['sourceTempr']
+            vlvPosStrDt = getCSVFrame('vlvPosTest.csv')
+            vlvPosStrDt.columns = ['vlvPos']
+        else:
+            temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+            temprFlowStrDt.columns = ['temprFlow']
+            sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
+            sourceTemprStrDt.columns = ['sourceTempr']
+            vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
+            vlvPosStrDt.columns = ['vlvPos']
 
         intermediate = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
         fullGrouping = intermediate.merge(vlvPosStrDt, right_index=True, left_index=True)
@@ -276,18 +318,32 @@ class VAV:
 
 
     
-    def calcReheat(self, ahu, delta, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False, sumVals=False, rawVals=False, omitVlvOff=False):
+    def calcReheat(self, ahu, delta, start_date=None, end_date=None, \
+                   interpolation_time='5min', limit=1000, avgVals=False, \
+                   sumVals=False, rawVals=False, omitVlvOff=False, \
+                   testInput=False):
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
-        temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-        temprFlowStrDt.columns = ['temprFlow']
-        sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-        sourceTemprStrDt.columns = ['sourceTempr']
-        vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
-        vlvPosStrDt.columns = ['vlvPos']
-        volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
-        volAirFlowStrDt.columns = ['volAirFlow']
+
+        if testInput:
+            temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
+            temprFlowStrDt.columns = ['temprFlow']
+            sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
+            sourceTemprStrDt.columns = ['sourceTempr']
+            vlvPosStrDt = getCSVFrame('vlvPosTest.csv')
+            vlvPosStrDt.columns = ['vlvPos']
+            volAirFlowStrDt = getCSVFrame('volAirFlowTest.csv')
+            volAirFlowStrDt.columns = ['volAirFlow']
+        else:
+            temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+            temprFlowStrDt.columns = ['temprFlow']
+            sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
+            sourceTemprStrDt.columns = ['sourceTempr']
+            vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
+            vlvPosStrDt.columns = ['vlvPos']
+            volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+            volAirFlowStrDt.columns = ['volAirFlow']
 
         interm1 = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
         interm2 = volAirFlowStrDt.merge(vlvPosStrDt, right_index=True, left_index=True)
@@ -398,8 +454,8 @@ def testScriptRogue(data):
 
 def testScriptCalc(data):
     testThermLoad = VAV(data['S2-12'], 'Dual')
-    #valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='7/1/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)
-    valsDict = testThermLoad.calcThermLoad(limit=1000, avgVals=True, sumVals=True, rawVals=True)
+    valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='7/1/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)
+    #valsDict = testThermLoad.calcThermLoad(limit=1000, avgVals=True, sumVals=True, rawVals=True)
     av = valsDict['Avg']
     sm = valsDict['Sum']
     rw = valsDict['Raw']
