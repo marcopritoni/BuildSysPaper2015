@@ -135,7 +135,7 @@ class VAV:
     # Start Rogue Temp heat function
     def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time='5Min', threshold=3):
         if threshold is None:
-            threshold = 3
+            threshold = 4
         if self.temp_control_type == 'Dual':
              stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time) + threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
@@ -144,7 +144,7 @@ class VAV:
              if roomTemp is None:
                  return None
              total = float(roomTemp.count())
-             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['HEAT_STPT']] >= threshold).count())
+             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['HEAT_STPT']] > threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -156,7 +156,7 @@ class VAV:
              if roomTemp is None:
                  return None
              total = float(roomTemp.count())
-             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['STPT']] >= threshold).count())
+             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['STPT']] > threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -174,7 +174,7 @@ class VAV:
             new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
             new_table = new_table.where(new_table[['HEAT.COOL']] == 1, new_table).fillna(new_table[['ROOM_TEMP']].mean())
             total = float(new_table[['ROOM_TEMP']].count())
-            count = float(new_table[['ROOM_TEMP']].where(new_table[['ROOM_TEMP']] - stpt >= threshold).count())
+            count = float(new_table[['ROOM_TEMP']].where(new_table[['ROOM_TEMP']] - stpt > threshold).count())
             percent = (count / total) * 100
             return percent
 
@@ -183,14 +183,14 @@ class VAV:
     # End Rogue Temp heat function
 
     # Start Rogue Temp Cool Function
-    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time='5Min', threshold=3):
+    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time='5Min', threshold=4):
         if threshold is None:
-            threshold = 3
+            threshold = 4
         if self.temp_control_type == 'Dual':
              stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['COOL_STPT']] - roomTemp[['ROOM_TEMP']] >= threshold).count())
+             count = float(roomTemp.where(stpt[['COOL_STPT']] - roomTemp[['ROOM_TEMP']] > threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -198,7 +198,7 @@ class VAV:
              stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['STPT']] - roomTemp[['ROOM_TEMP']] >= threshold).count())
+             count = float(roomTemp.where(stpt[['STPT']] - roomTemp[['ROOM_TEMP']] > threshold).count())
              percent = (count / total) * 100
              return percent
 
@@ -216,7 +216,7 @@ class VAV:
             new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
             new_table = new_table.where(new_table[['HEAT.COOL']] == 0, new_table).fillna(new_table[['ROOM_TEMP']].mean())
             total = float(new_table[['ROOM_TEMP']].count())
-            count = float(new_table[['ROOM_TEMP']].where(stpt - new_table[['ROOM_TEMP']] >= threshold).count())
+            count = float(new_table[['ROOM_TEMP']].where(stpt - new_table[['ROOM_TEMP']] > threshold).count())
             percent = (count / total) * 100
             return percent
 
