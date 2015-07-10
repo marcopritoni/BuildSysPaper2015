@@ -11,12 +11,58 @@ import VavDataReader
 import csv
 
 
+### START DEBUG FUNCTIONS ###
+
+
+def primitiveThermLoad(flowTempr, roomTempr, flowRate):
+    return (flowTempr - roomTempr) * flowRate * 0.31633653943
+
+
+def primitiveDelta(flowTempr, sourceTempr):
+    return (flowTempr - sourceTempr) * (5.0/9.0)
+
+
+def primitiveReheat(flowTempr, sourceTempr, flowRate, deltaT):
+    t = (flowTempr*(5.0/9.0) - 32) - (sourceTempr*(5.0/9.0) - 32) + deltaT
+    return t * flowRate * (1.0/2118.88) * 1.2005 * 1005.0
+
+
+def getCSVFrame(fileName, interpolation_time='5min'):
+    streamList = []
+    with open(fileName, 'rb') as inFile:
+        f = csv.reader(inFile)
+        for row in f:
+            eRow = [eval(row[0]) * 1000, eval(row[1])]
+            streamList.append(eRow)
+    inFile.close()
+    #for stream in streamList:
+    #    print "HELLO! " + str(stream)
+    wrapperDict = {'Readings':streamList}
+    q = [wrapperDict]
+    
+
+    data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', fileName]) # sensor_name])
+    data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
+    data_table.set_index('Time', inplace=True)
+    data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+
+    return data_table
+
+
+### END DEBUG FUNCTIONS ###
+
+
+# Represents a given AHU
 class AHU:
     def __init__(self, SAT_ID, SetPt_ID):
         self.uuidSAT = SAT_ID
         self.uuidSetPt = SetPt_ID
 
 
+# Called by calcDelta and calcReheat to operate on data, performing unit conversions.
+# If no flow rate or deltaT is given, will calculate deltaT (flow temperature - source temperature).
+# Otherwise, will 
+# Introducing deltaT and flowValue will perform the full operation
 def reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None, deltaT=None):
     RHO = 1.2005 * pq.kg/pq.m**3
     C = 1005.0 * pq.J/(pq.kg*pq.degC)
@@ -33,24 +79,6 @@ def reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None, deltaT=None
     else:
         calcVal = temp
     return calcVal
-
-
-def getCSVFrame(fileName):
-    streamList = []
-    with open(fileName, 'rb') as inFile:
-        f = csv.reader(inFile)
-        for row in f:
-            streamList.append(row)
-    inFile.close()
-
-    wrapperDict = {'Readings':streamList}
-    q = [wrapperDict]
-
-    data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensor_name])
-    data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
-    data_table.set_index('Time', inplace=True)
-    data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
-    return data_table
     
 
 # Begin VAV class definition
@@ -61,6 +89,10 @@ class VAV:
         self.sensors = sensors
         self.temp_control_type = temp_control_type
 
+    # Queries for stream data between from a sensor, in user-specified start and end dates and limit.
+    # Outputs data as pandas DataFrame object, with data interpolated by interpolation_time.
+    # If externalID is given a uuid value, it will query by that ID rather than the one specified by
+    # sensor_name.
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=-1, externalID=None):
         client_obj = SmapClient("http://new.openbms.org/backend")
         if self.sensors.get(sensor_name) is None and externalID is None:
@@ -222,7 +254,7 @@ class VAV:
             temprFlowStrDt.columns = ['temprFlow']
             roomTemprStrDt  = getCSVFrame('roomTemprTest.csv')
             roomTemprStrDt.columns = ['roomTempr']
-            volAirFlowStrDt = self.getCSVFrame('volAirFlowTest.csv')
+            volAirFlowStrDt = getCSVFrame('volAirFlowTest.csv')
             volAirFlowStrDt.columns = ['volAirFlow']
         else:
             temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
@@ -232,19 +264,20 @@ class VAV:
             volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
             volAirFlowStrDt.columns = ['volAirFlow']
 
-        intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True)
-        fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True)
+        intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True, how='outer')
+        fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True, how='outer')
+        # fullGrouping = fullGrouping.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
         # TODO: Additional interpolate
-        
         
         temprFlowStreamData  = list(fullGrouping['temprFlow'])
         roomTemprStreamData  = list(fullGrouping['roomTempr'])
         volAirFlowStreamData = list(fullGrouping['volAirFlow'])
+
         
         RHO = 1.2005 * pq.kg/pq.m**3
         C = 1005.0 * pq.J/(pq.kg*pq.degC)
         newList = []
-
+        
         flwTmprF = temprFlowStreamData * pq.degF
         flwTmprC = flwTmprF.rescale('degC')
         roomTmprF = roomTemprStreamData * pq.degF
@@ -256,6 +289,16 @@ class VAV:
         
         retDict = {}
         newList = list([float(e) for e in load])
+        ### Begin Debug Script ###
+        #myMappy = map(primitiveThermLoad, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData)
+        #for n, m in zip(newList, myMappy):
+        #    uLineSq = '\033[4m'
+        #    dStr = ""
+        #    if abs(m - n) > 0.1:
+        #        dStr += uLineSq
+        #    dStr += "Output: " + str(n) + ", Confirmation: " + str(m) + ", Diff: " + str(abs(m - n))
+        #    print dStr
+        ###  End Debug Script  ###
         if sumVals:
             retDict['Sum'] = sum(newList)
         if avgVals:
@@ -297,7 +340,16 @@ class VAV:
 
         newList = reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData)
         newList = list([float(x) for x in newList])
-
+        ### Begin Debug Script ###
+        #myMappy = map(primitiveDelta, temprFlowStreamData, sourceTemprStreamData)
+        #for n, m in zip(newList, myMappy):
+        #    uLineSq = '\033[4m'
+        #    dStr = ""
+        #    if abs(m - n) > 0.1:
+        #        dStr += uLineSq
+        #    dStr += "Output: " + str(n) + ", Confirmation: " + str(m) + ", Diff: " + str(abs(m - n))
+        #    print dStr
+        ###  End Debug Script  ###
         if len(newList) == 0:
             return 0.0
 
@@ -362,7 +414,17 @@ class VAV:
         
         newList = reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
         newList = list([float(x) for x in newList])
-
+        ### Begin Debug Script ###
+        #myMappy = map(primitiveReheat, temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, \
+        #              [delta for i in range(len(temprFlowStreamData))])
+        #for n, m in zip(newList, myMappy):
+        #    uLineSq = '\033[4m'
+        #    dStr = ""
+        #    if abs(m - n) > 0.1:
+        #        dStr += uLineSq
+        #    dStr += "Output: " + str(n) + ", Confirmation: " + str(m) + ", Diff: " + str(abs(m - n))
+        #    print dStr
+        ###  End Debug Script  ###
         retDict = {}
         if sumVals:
             retDict['Sum'] = sum(newList)
@@ -433,16 +495,6 @@ def testScriptRogue(data):
         value = inst.find_rogue('temp_heat', date_start='4/1/2015', date_end='5/1/2015')
         pressures[key] = [value]
 
-    # testThermLoad = VAV(data['S2-12'], 'Dual')
-    # av = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'avg')
-    # sm = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'sum')
-    # rw = testThermLoad.calcRoomThermLoad(None, None, '5min', 10000, 'raw')
-    # print "Avg: " + str(av) + ", Sum: " + str(sm)
-    # for t, v in zip(rw['Time'], rw['Value']):
-    #     print str(t) + " <<<>>> " + str(v)
-    #
-
-
     inst = VAV(data['S2-12'], 'Current')  # only for sdj hall
     print inst.find_rogue('temp_heat', None, '4/1/2014', '5/1/2014', '5Min')
     print inst.find_rogue('temp_cool', None, '4/1/2014', '5/1/2014', '5Min')
@@ -454,12 +506,11 @@ def testScriptRogue(data):
 
 def testScriptCalc(data):
     testThermLoad = VAV(data['S2-12'], 'Dual')
-    valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='7/1/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)
+    valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='7/1/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)#, testInput=True)
     #valsDict = testThermLoad.calcThermLoad(limit=1000, avgVals=True, sumVals=True, rawVals=True)
     av = valsDict['Avg']
     sm = valsDict['Sum']
     rw = valsDict['Raw']
-    print "Therm Load"
     print "Avg: " + str(av) + ", Sum: " + str(sm)
     raw_input("Press enter to continue.")
     for t, v in zip(rw['Time'], rw['Value']):
@@ -480,8 +531,11 @@ def testScriptCalc(data):
 
 
 def main():
+    # Get input file and its type from user (either through command line        
+    # or, if args not supplied, prompt user for them)
     inputFileType, inputFileName = readInput()
 
+    # Gather data specified or supplied by file.
     if inputFileType == 'j':
         with open(inputFileName) as data_file:
             data = json.load(data_file)
