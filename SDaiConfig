@@ -1,4 +1,3 @@
 [info]
 server=http://www.openbms.org/backend
-#whereClause=Metadata/Location/Building = "Sutardja Dai Hall"
 whereClause=Metadata/Location/Building = "Sutardja Dai Hall" and Path like "%Siemens%" and Metadata/SourceName = "Sutardja Dai Hall BACnet"

@@ -21,7 +21,7 @@ import json
 #        Vav.IDCounter += 1
 
 
-class SDaiParser:
+class SDaiVavParser:
     def checkValidPath(self, p):
         if fnmatch.fnmatchcase(p, '*S[0-9]-[0-9][0-9]*'):
             return True
@@ -40,7 +40,7 @@ class SDaiParser:
         # sensorType = extractType(pointNameStr)
         
         return Vav, sensorType
-# END: class SDaiParser
+# END: class SDaiVavParser
 
 
 def getConfigInfo(fName):
@@ -85,7 +85,7 @@ def dictToJson(d, outputFile):
 def importVavData(configFileName):
     servAddr, whereClause = getConfigInfo(configFileName)
     q = queryData(servAddr, whereClause)
-    dataDict = constructData(q, SDaiParser())
+    dataDict = constructData(q, SDaiVavParser())
     return dataDict
     
     
