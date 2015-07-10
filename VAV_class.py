@@ -257,6 +257,9 @@ class VAV:
     def calcThermLoad(self, start_date=None, end_date=None, \
                       interpolation_time='5min', limit=1000, avgVals=False, \
                       sumVals=False, rawVals=False, testInput=False):
+        ##global flowTemprGlobal
+        ##global roomTemprGlobal
+        ##global airFlowGlobal
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
@@ -284,6 +287,12 @@ class VAV:
         temprFlowStreamData  = list(fullGrouping['temprFlow'])
         roomTemprStreamData  = list(fullGrouping['roomTempr'])
         volAirFlowStreamData = list(fullGrouping['volAirFlow'])
+
+        ##flowTemprGlobal = temprFlowStreamData
+        ##roomTemprGlobal = roomTemprStreamData
+        ##airFlowGlobal   = volAirFlowStreamData
+
+        
         #temprFlowStreamData  = fullGrouping['temprFlow']
         #roomTemprStreamData  = fullGrouping['roomTempr']
         #volAirFlowStreamData = fullGrouping['volAirFlow']
@@ -391,6 +400,8 @@ class VAV:
                    interpolation_time='5min', limit=1000, avgVals=False, \
                    sumVals=False, rawVals=False, omitVlvOff=False, \
                    testInput=False):
+        ## global sourceTemprGlobal
+        ## global valvePosGlobal
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
@@ -427,6 +438,10 @@ class VAV:
         sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
         volAirFlowStreamData   = list(fullGrouping['volAirFlow'])
         valvePosStreamData     = list(fullGrouping['vlvPos'])
+
+        ## sourceTemprGlobal = sourceTemprStreamData
+        ## valvePosGlobal = valvePosStreamData
+        
         #self._reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None, deltaT=None)
         
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
@@ -523,39 +538,51 @@ def testScriptRogue(data):
 
 def testScriptCalc(data):
     testThermLoad = VAV('S2-12', data['S2-12'], 'Dual')
-    #valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='7/1/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)#, testInput=True)
-    valsDict = testThermLoad.calcThermLoad(limit=1000, avgVals=True, sumVals=True, rawVals=True)
+    valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='6/15/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)#, testInput=True)
+    #valsDict = testThermLoad.calcThermLoad(limit=1000, avgVals=True, sumVals=True, rawVals=True)
     av = valsDict['Avg']
     sm = valsDict['Sum']
     rw = valsDict['Raw']
     print "Avg: " + str(av) + ", Sum: " + str(sm)
     #raw_input("Press enter to continue.")
-    with open(testThermLoad.ID + '_ThermLoad.csv', 'wb') as outF:
-        f = csv.writer(outF)
-        f.writerows(zip(rw['Time'], rw['Value']))
-    outF.close()
+
+    ##CSVDict = {'Time':rw['Time'], 'ThermalLoad':rw['Value'],'FlowTemperature':flowTemprGlobal, \
+    ##           'RoomTemperature':roomTemprGlobal,'AirFlowRate':airFlowGlobal}
+    #with open(testThermLoad.ID + '_ThermLoad.csv', 'wb') as outF:
+    #    f = csv.writer(outF)
+    #    f.writerows(zip(rw['Time'], rw['Value']))
+    #outF.close()
     #for t, v in zip(rw['Time'], rw['Value']):
     #    print str(t) + " <<<>>> " + str(v)
 
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
-    deltaT = testThermLoad.calcDelta(testAHU, start_date=None, end_date=None, interpolation_time='5min', limit=1000)
+    deltaT = testThermLoad.calcDelta(testAHU, start_date='6/1/2015', end_date='6/15/2015', interpolation_time='5min', limit=-1)
     print deltaT
-    valsDict = testThermLoad.calcReheat(testAHU, deltaT, limit=1000, avgVals=True, sumVals=True, rawVals=True)
+    valsDict = testThermLoad.calcReheat(testAHU, deltaT, start_date='6/1/2015', end_date='6/15/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)
     av = valsDict['Avg']
     sm = valsDict['Sum']
     rw = valsDict['Raw']
+    ##CSVDict['SourceTemperature'] = sourceTemprGlobal
+    ##CSVDict['ValvePosition'] = valvePosGlobal
+    ##CSVDict['Reheat'] = rw['Value']
     print "Reheat:"
     print "Avg: " + str(av) + ", Sum: " + str(sm)
     #raw_input("Press enter to continue.")
-    with open(testThermLoad.ID + '_Reheat.csv', 'wb') as outF:
-        f = csv.writer(outF)
-        f.writerows(zip(rw['Time'], rw['Value']))
-    outF.close()
+    ##with open('calcOutput.csv', 'wb') as outF:
+    ##    w = csv.writer(outF)
+    ##    w.writerow(CSVDict.keys())
+    ##    w.writerows(zip(*CSVDict.values()))
+    ##outF.close()
     #for t, v in zip(rw['Time'], rw['Value']):
     #    print str(t) + " <<<>>> " + str(v)
 
-    
+
+#d = {"key1": [1,2,3], "key2": [4,5,6], "key3": [7,8,9]}
+#with open("test.csv", "wb") as outfile:
+#   writer = csv.writer(outfile)
+#   writer.writerow(d.keys())
+#   writer.writerows(zip(*d.values()))
 
 
 def main():
