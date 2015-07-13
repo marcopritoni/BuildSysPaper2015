@@ -86,6 +86,7 @@ def importVavData(configFileName):
     servAddr, whereClause = getConfigInfo(configFileName)
     q = queryData(servAddr, whereClause)
     dataDict = constructData(q, SDaiVavParser())
+    dataDict['Server'] = servAddr
     return dataDict
     
     

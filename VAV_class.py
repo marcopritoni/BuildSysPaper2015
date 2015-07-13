@@ -63,17 +63,21 @@ class AHU:
 
 
 class VAV:
-    def __init__(self, ident, sensors, temp_control_type):
+    def __init__(self, ident, sensors, temp_control_type, serverAddr=None):
         self.ID = ident
         self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
         self.temp_control_type = temp_control_type # The type of set point data available for this VAV box
+        if serverAddr is None:
+            self.serverAddr = "http://new.openbms.org/backend"
+        else:
+            self.serverAddr = serverAddr
 
     # Queries for stream data between from a sensor, in user-specified start and end dates and limit.
     # Outputs data as pandas DataFrame object, with data interpolated by interpolation_time.
     # If externalID is given a uuid value, it will query by that ID rather than the one specified by
     # sensor_name.
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=-1, externalID=None):
-        client_obj = SmapClient("http://new.openbms.org/backend")
+        client_obj = SmapClient(self.serverAddr)
         if self.sensors.get(sensor_name) is None and externalID is None:
             print 'no ' + sensor_name + ' info'
             return None
@@ -400,8 +404,8 @@ class VAV:
                    interpolation_time='5min', limit=1000, avgVals=False, \
                    sumVals=False, rawVals=False, omitVlvOff=False, \
                    testInput=False):
-        ## global sourceTemprGlobal
-        ## global valvePosGlobal
+        ##global sourceTemprGlobal
+        ##global valvePosGlobal
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
@@ -439,8 +443,8 @@ class VAV:
         volAirFlowStreamData   = list(fullGrouping['volAirFlow'])
         valvePosStreamData     = list(fullGrouping['vlvPos'])
 
-        ## sourceTemprGlobal = sourceTemprStreamData
-        ## valvePosGlobal = valvePosStreamData
+        ##sourceTemprGlobal = sourceTemprStreamData
+        ##valvePosGlobal = valvePosStreamData
         
         #self._reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None, deltaT=None)
         
@@ -523,9 +527,10 @@ def testScriptRogue(data):
     
     pressures = pd.DataFrame()
     for key in data.keys():
-        inst = VAV(key, data[key], 'Current')
-        value = inst.find_rogue('temp_heat', date_start='4/1/2015', date_end='5/1/2015')
-        pressures[key] = [value]
+        if key != 'Server':
+            inst = VAV(key, data[key], 'Current', data.get('Server'))
+            value = inst.find_rogue('temp_heat', date_start='4/1/2015', date_end='5/1/2015')
+            pressures[key] = [value]
 
     inst = VAV('S2-12', data['S2-12'], 'Current')  # only for sdj hall
     print inst.find_rogue('temp_heat', None, '4/1/2014', '5/1/2014', '5Min')
@@ -537,7 +542,7 @@ def testScriptRogue(data):
 
 
 def testScriptCalc(data):
-    testThermLoad = VAV('S2-12', data['S2-12'], 'Dual')
+    testThermLoad = VAV('S5-21', data['S5-12'], 'Dual', data.get('Server'))
     valsDict = testThermLoad.calcThermLoad(start_date='6/1/2015', end_date='6/15/2015', limit=-1, avgVals=True, sumVals=True, rawVals=True)#, testInput=True)
     #valsDict = testThermLoad.calcThermLoad(limit=1000, avgVals=True, sumVals=True, rawVals=True)
     av = valsDict['Avg']
@@ -569,20 +574,13 @@ def testScriptCalc(data):
     print "Reheat:"
     print "Avg: " + str(av) + ", Sum: " + str(sm)
     #raw_input("Press enter to continue.")
-    ##with open('calcOutput.csv', 'wb') as outF:
+    ##with open('calcOutput2.csv', 'wb') as outF:
     ##    w = csv.writer(outF)
     ##    w.writerow(CSVDict.keys())
     ##    w.writerows(zip(*CSVDict.values()))
     ##outF.close()
     #for t, v in zip(rw['Time'], rw['Value']):
     #    print str(t) + " <<<>>> " + str(v)
-
-
-#d = {"key1": [1,2,3], "key2": [4,5,6], "key3": [7,8,9]}
-#with open("test.csv", "wb") as outfile:
-#   writer = csv.writer(outfile)
-#   writer.writerow(d.keys())
-#   writer.writerows(zip(*d.values()))
 
 
 def main():
@@ -596,6 +594,9 @@ def main():
             data = json.load(data_file)
     elif inputFileType == 'c':
         data = VavDataReader.importVavData(inputFileName)
+
+
+    #print getCSVFrame("volAirFlowTest.csv", interpolation_time='5min')
 
     #testScriptRogue(data)
     testScriptCalc(data)
