@@ -52,6 +52,32 @@ def getCSVFrame(fileName, interpolation_time='5min'):
 ### END DEBUG FUNCTIONS ###
 
 
+#######################
+#START OPTIONS CLASSES#
+#######################
+
+
+class Options:
+    @staticmethod
+    def assign(qInfo, fInfo, outOptions, dataAttr):
+        Options.query = qInfo
+        Options.files = fInfo
+        Options.output = outOptions
+        Options.data = dataAttr
+
+
+# NOT CURRENTLY USED #
+class InstanceOptions:
+    def __init__(self, qInfo, fInfo, outOptions, dataAttr):
+        self.query = qInfo
+        self.files = fInfo
+        self.output = outOptions
+        self.data = dataAttr
+
+#####################
+#END OPTIONS CLASSES#
+#####################
+
 # Represents a given AHU
 class AHU:
     def __init__(self, SAT_ID, SetPt_ID):
@@ -76,7 +102,15 @@ class VAV:
     # Outputs data as pandas DataFrame object, with data interpolated by interpolation_time.
     # If externalID is given a uuid value, it will query by that ID rather than the one specified by
     # sensor_name.
-    def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=-1, externalID=None):
+    def _query_data(self, sensor_name, start_date='4/1/2015',
+                    end_date='4/2/2015', interpolation_time='5min', limit=-1,
+                    externalID=None, useOptions=False):
+        if useOptions:
+            start_date = Options.data['starttime']
+            end_date = Options.data['endtime']
+            interpolation_time = Options.data['interpolationtime']
+            limit = eval(Options.data['limit'])
+            
         client_obj = SmapClient(self.serverAddr)
         if (self.sensors is None or self.sensors.get(sensor_name) is None) and externalID is None:
             print 'no ' + sensor_name + ' info'
@@ -108,10 +142,15 @@ class VAV:
 
     # Start rogue pressure function
     # Returns the percentage of damper positions that are far outside the expected and desired norm.
-    def _find_rogue_pressure(self, date_start, date_end, interpolation_time, threshold=95, getAll=False, inputFrame=None):
-        if threshold is None:
+    def _find_rogue_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
+                             interpolation_time='5min', threshold=95, getAll=False, inputFrame=None, useOptions=False):
+        if threshold is None and not useOptions:
             threshold = 95
-        table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
+        if useOptions:
+            threshold = eval(Options.data['press_threshold'])
+            table = self._query_data('DMPR_POS', useOptions=True)
+        else:
+            table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
         if table is None:
             return None
         total = float(table.count())
@@ -122,13 +161,20 @@ class VAV:
 
     # Start Rogue Temp heat function
     # Returns the percentage of temperatures that are beyond the heating setpoint.
-    def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time='5Min', threshold=3, getAll=False, inputFrame=None):
-        if threshold is None:
+    def _find_rogue_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=3, getAll=False, inputFrame=None, useOptions=False):
+        if threshold is None and not useOptions:
             threshold = 4
-        # 
+        elif useOptions:
+            threshold = eval(Options.data['heat_threshold'])
+
+        
         if self.temp_control_type == 'Dual':
-             stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time)
-             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if useOptions:
+                 stpt = self._query_data('HEAT_STPT', useOptions=True)
+                 roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+             else:
+                 stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time)
+                 roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              if stpt is None:
                  return None
              if roomTemp is None:
@@ -140,8 +186,12 @@ class VAV:
              return percent
 
         elif self.temp_control_type == 'Single':
-             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + threshold
-             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if useOptions:
+                 stpt = self._query_data('STPT', useOptions=True) + threshold
+                 roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+             else:
+                 stpt = self._query_data('STPT', date_start, date_end, interpolation_time) + threshold
+                 roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              if stpt is None:
                  return None
              if roomTemp is None:
@@ -152,9 +202,14 @@ class VAV:
              return percent
 
         elif self.temp_control_type == 'Current':
-            table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
-            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-            stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
+            if useOptions:
+                table = self._query_data('HEAT.COOL', useOptions=True)
+                roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+                stpt = self._query_data('CTL_STPT', useOptions=True)
+            else:
+                table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
+                roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+                stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
             if table is None:
                 return None
             if stpt is None:
@@ -175,12 +230,19 @@ class VAV:
 
     # Start Rogue Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
-    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None):
-        if threshold is None:
+    def _find_rogue_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None, useOptions=False):
+        if threshold is None and not useOptions:
             threshold = 4
+        elif useOptions:
+            threshold = eval(Options.data['cool_threshold'])
+        
         if self.temp_control_type == 'Dual':
-             stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
-             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if useOptions:
+                 stpt = self._query_data('COOL_STPT', useOptions=True)
+                 roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+             else:
+                 stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
+                 roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              if stpt is None or roomTemp is None:
                  return None
              total = float(roomTemp.count())
@@ -189,17 +251,28 @@ class VAV:
              return percent
 
         elif self.temp_control_type == 'Single':
-             stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
-             roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if useOptions:
+                 stpt = self._query_data('STPT', useOptions=True) - threshold
+                 roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+             else:
+                 stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
+                 roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              total = float(roomTemp.count())
              count = float(roomTemp.where(stpt[['STPT']] - roomTemp[['ROOM_TEMP']] > threshold).count())
              percent = (count / total) * 100
              return percent
 
         elif self.temp_control_type == 'Current':
-            table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
-            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-            stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
+            if useOptions:
+                table = self._query_data('HEAT.COOL', useOptions=True)
+                roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+                stpt = self._query_data('CTL_STPT', useOptions=True)
+            else:
+                table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
+                roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+                stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
+
+                
             if table is None:
                 return None
             if stpt is None:
@@ -219,7 +292,7 @@ class VAV:
     # End Rogue Temp Cool Function
 
     # Finds both heating and cooling setpoint rogue temperature percentages. Returns them as a [heat percentage, cool percentage] pair.
-    def find_rogue_temps(self, date_start, date_end, interpolation_time='5Min', threshold=None):
+    def find_rogue_temps(self, date_start, date_end, interpolation_time='5Min', threshold=None):#, useOptions=False):
         heats = self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
         cools = self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
         return [heats, cools]
@@ -230,13 +303,24 @@ class VAV:
     # TODO (Ian): implement code that handles getAll and inputFrame args.
     # getAll=True makes this return a timeseries of 0 and 1 values (1's representing rogue readings)
     # inputFrame (might change this to inputFrames) makes this take in dataframes from already-queried data, rather than querying the data itself.
-    def find_rogue(self, rogue_type, threshold=None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min', getAll=False, inputFrame=None):
+    def find_rogue(self, rogue_type, threshold=None, date_start='1/1/2014',
+                   date_end='now', interpolation_time = '5Min', getAll=False,
+                   inputFrame=None, useOptions=False):
         if rogue_type == 'pressure':
-            return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
+            if useOptions:
+                return self._find_rogue_pressure(inputFrame=inputFrame, useOptions=True)
+            else:
+                return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
         elif rogue_type == 'temp_cool':
-            return self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
+            if useOptions:
+                return self._find_rogue_temp_cool(inputFrame=inputFrame, useOptions=True)
+            else:
+                return self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
         elif rogue_type == 'temp_heat':
-            return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
+            if useOptions:
+                return self._find_rogue_temp_heat(inputFrame=inputFrame, useOptions=True)
+            else:
+                return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
         else:
             print rogue_type + ' is not a valid option for rogue_type'
 
@@ -246,6 +330,9 @@ class VAV:
     #END ROGUE METHODS#
     ###################
 
+    ####################
+    #START CALC METHODS#
+    ####################
 
     # Called by calcDelta and calcReheat to operate on data, performing unit conversions.
     # If no flow rate or deltaT is given, will calculate deltaT (flow temperature - source temperature).
@@ -274,7 +361,7 @@ class VAV:
     # are set to True.
     def calcThermLoad(self, start_date=None, end_date=None, \
                       interpolation_time='5min', limit=1000, avgVals=False, \
-                      sumVals=False, rawVals=False, testInput=False, inputFrames=None):
+                      sumVals=False, rawVals=False, testInput=False, inputFrames=None, useOptions=False):
         ##global flowTemprGlobal
         ##global roomTemprGlobal
         ##global airFlowGlobal
@@ -295,16 +382,19 @@ class VAV:
             roomTemprStrDt = inputFrames['Room Temperature']
             volAirFlowStrDt = inputFrames['Flow Rate']
         else:
-            temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-            roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
-            volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+            if useOptions:
+                temprFlowStrDt  = self._query_data('AI_3', useOptions=True)
+                roomTemprStrDt  = self._query_data('ROOM_TEMP', useOptions=True)
+                volAirFlowStrDt = self._query_data('AIR_VOLUME', useOptions=True)
+            else:
+                temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+                roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
+                volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
 
         temprFlowStrDt.columns  = ['temprFlow']
         roomTemprStrDt.columns  = ['roomTempr']
         volAirFlowStrDt.columns = ['volAirFlow']
         
-        
-
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True, how='outer')
         fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True, how='outer')
         # fullGrouping = fullGrouping.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
@@ -365,7 +455,7 @@ class VAV:
     # for readings which coincide with a zero reading for valve-position. Returns the average of results.
     # NOTE: Returns in degrees celcius
     def calcDelta(self, ahu=None, start_date=None, end_date=None, \
-                  interpolation_time='5min', limit=1000, testInput=False, inputFrames=None):
+                  interpolation_time='5min', limit=1000, testInput=False, inputFrames=None, useOptions=False):
         if testInput:
             temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
             sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
@@ -380,9 +470,15 @@ class VAV:
             vlvPosStrDt = inputFrames['Valve Position']
         else:
             assert type(ahu) is AHU
-            temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-            sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-            vlvPosStrDt = self._query_data('VLV_POS',  start_date, end_date, interpolation_time, limit=limit)
+            if useOptions:
+                temprFlowStrDt  = self._query_data('AI_3', useOptions=True)
+                sourceTemprStrDt  = self._query_data(None, externalID=ahu.uuidSAT, useOptions=True)
+                vlvPosStrDt = self._query_data('VLV_POS',  useOptions=True)
+            else:
+                temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+                sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit, externalID=ahu.uuidSAT)
+                vlvPosStrDt = self._query_data('VLV_POS',  start_date, end_date, interpolation_time, limit=limit)
+
             
 
         temprFlowStrDt.columns = ['temprFlow']
@@ -434,7 +530,7 @@ class VAV:
     def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None, \
                    interpolation_time='5min', limit=1000, avgVals=False, \
                    sumVals=False, rawVals=False, omitVlvOff=False, \
-                   testInput=False, inputFrames=None):
+                   testInput=False, inputFrames=None, useOptions=False):
         ##global sourceTemprGlobal
         ##global valvePosGlobal
         if not (avgVals or sumVals or rawVals):
@@ -458,10 +554,16 @@ class VAV:
             volAirFlowStrDt = inputFrames['Flow Rate']
         else:
             assert type(ahu) is AHU and delta is not None
-            temprFlowStrDt    = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-            sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-            vlvPosStrDt       = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
-            volAirFlowStrDt   = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+            if useOptions:
+                temprFlowStrDt    = self._query_data('AI_3', useOptions=True)
+                sourceTemprStrDt  = self._query_data(None, externalID=ahu.uuidSAT, useOptions=True)
+                vlvPosStrDt       = self._query_data('VLV_POS', useOptions=True)
+                volAirFlowStrDt   = self._query_data('AIR_VOLUME', useOptions=True)
+            else:
+                temprFlowStrDt    = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
+                sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
+                vlvPosStrDt       = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
+                volAirFlowStrDt   = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
 
         
         
@@ -514,6 +616,10 @@ class VAV:
         if rawVals:
             retDict['Raw'] = {'Time':list(fullGrouping.index), 'Value':newList}
         return retDict
+    
+    ##################
+    #END CALC METHODS#
+    ##################
 
 
 ###########################
@@ -522,14 +628,11 @@ class VAV:
 
 #self, ident, sensors, temp_control_type, serverAddr=None
 
-def processdata(data, servAddr,start_date='4/1/2015', end_date='4/2/2015',
-                interpolation_time='5min', limit=-1, VAV_Name=None,
-                sensorDict=None):
+def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
 
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
-    threshold = 4
-    preshold = 95
+    
     if sensorDict is None:
         sensorNames = {'Flow Temperature':['AI_3'],
                            'Valve Position':['VLV_POS'],
@@ -539,56 +642,48 @@ def processdata(data, servAddr,start_date='4/1/2015', end_date='4/2/2015',
         sensorNames = sensorDict
 
     qVAV= VAV(None, None, None, None)
-    sourceTempr = qVAV._query_data(None, start_date, end_date,
-                     interpolation_time,
-                     limit=limit,
-                     externalID=testAHU.uuidSAT)
+    sourceTempr = qVAV._query_data(None, externalID=testAHU.uuidSAT,
+                                   useOptions=True)
 
     frames = {'Source Temperature':sourceTempr}
     
     if VAV_Name is None:
         retDict = {'VAV':[], 'Thermal Load':[],'Delta T':[],
-                   'Rogue Heat':[], 'Rogue Cool':[], 'Rogue Pressure':[], 'Reheat':[]}
-        VAVs = [VAV(key, data[key], 'Current', servAddr) for key in data] # TODO:
+                   'Rogue Heat':[], 'Rogue Cool':[], 'Rogue Pressure':[],
+                   'Reheat':[]}
+        VAVs = [VAV(key, data[key], 'Current', servAddr) for key in data]
         print "VAV count: " + str(len(VAVs))
         for thisVAV in VAVs:
+            print "Processing " + thisVAV.ID
             frames = {'Source Temperature':sourceTempr}
             
             for key in sensorNames:
                 shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
                 if shared:
-                    frames[key] = thisVAV._query_data(shared[0], start_date,
-                                                      end_date,
-                                                      interpolation_time, limit)
+                    frames[key] = thisVAV._query_data(shared[0],
+                                                      useOptions=True)
                 else:
                     frames[key] = None
-
-            tl = thisVAV.calcThermLoad(start_date=start_date,
-                                       end_date=end_date,
-                                       interpolation_time=interpolation_time,
-                                       limit=limit, avgVals=True, sumVals=False,
-                                       rawVals=False, inputFrames=frames)
-            dt = thisVAV.calcDelta(start_date=start_date, end_date=end_date,
-                                   interpolation_time=interpolation_time,
-                                   limit=limit, inputFrames=frames)
-            rh = thisVAV.calcReheat(start_date=start_date,end_date=end_date,
-                                   interpolation_time=interpolation_time,
-                                   limit=limit, avgVals=True,rawVals=False,
-                                   inputFrames=frames)
+            print "Calculating Thermal Load..."
+            tl = thisVAV.calcThermLoad(inputFrames=frames, avgVals=True,
+                                       useOptions=True)
+            print "Calculating Temperature Delta..."
+            dt = thisVAV.calcDelta(inputFrames=frames, useOptions=True)
+            print "Calculating Reheat..."
+            rh = thisVAV.calcReheat(inputFrames=frames, avgVals=True,
+                                    useOptions=True)
             if tl is not None:
                 tl = tl['Avg']
             if rh is not None:
                 rh = rh['Avg']
 
-            print 'a'
-            rogueCool  = thisVAV.find_rogue('temp_cool', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
-            print 'b'
-            rogueHeat  = thisVAV.find_rogue('temp_heat', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
-            print 'c'
-            roguePress = thisVAV.find_rogue('pressure', threshold=preshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
-            print 'd'
+            print "Finding Rogue Cool..."
+            rogueCool  = thisVAV.find_rogue('temp_cool', useOptions=True)
+            print "Finding Rogue Heat..."
+            rogueHeat  = thisVAV.find_rogue('temp_heat', useOptions=True)
+            print "Finding Rogue Pressure..."
+            roguePress = thisVAV.find_rogue('pressure', useOptions=True)
             
-
             retDict['Thermal Load'].append(tl)
             retDict['Delta T'].append(dt)
             retDict['Reheat'].append(rh)
@@ -597,7 +692,7 @@ def processdata(data, servAddr,start_date='4/1/2015', end_date='4/2/2015',
             retDict['Rogue Cool'].append(rogueCool)
             retDict['Rogue Pressure'].append(roguePress)
             retDict['VAV'].append(thisVAV.ID)
-            print thisVAV.ID + " complete."
+            print thisVAV.ID + " complete.\n"
         return pd.DataFrame(retDict)
             
                 
@@ -606,28 +701,22 @@ def processdata(data, servAddr,start_date='4/1/2015', end_date='4/2/2015',
         for key in sensorNames:
             shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
             if shared:
-                frames[key] = thisVAV._query_data(shared[0], start_date,
-                                                    end_date,
-                                                    interpolation_time, limit)
+                frames[key] = thisVAV._query_data(shared[0], useOptions=True)
             else:
                 frames[key] = None
 
-        tl = thisVAV.calcThermLoad(self, start_date=start_date,
-                                   end_date=end_date,
-                                   interpolation_time=interpolation_time,
-                                   limit=limit, avgVals=True, sumVals=False,
-                                   rawVals=True)
-        dt = thisVAV.calcDelta(self, start_date=start_date, end_date=end_date,
-                               interpolation_time=interpolation_time,
-                               limit=limit, inputFrames=frames)
-        rh = thisVAV.calcDelta(start_date=start_date,end_date=end_date,
-                               interpolation_time=interpolation_time,
-                               limit=limit, avgVals=True,rawVals=True,
-                               inputFrames=True)
+        tl = thisVAV.calcThermLoad(inputFrames=frames, avgVals=True,
+                                   rawVals=True, useOptions=True)
+        dt = thisVAV.calcDelta(inputFrames=frames, useOptions=True)
+        rh = thisVAV.calcReheat(inputFrames=frames, avgVals=True,
+                                rawVals=True, useOptions=True)
 
-        rogueCool  = find_rogue('temp_cool', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
-        rogueHeat  = find_rogue('temp_heat', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
-        roguePress = find_rogue('pressure', threshold=preshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+        print "Finding Rogue Cool..."
+        rogueCool  = thisVAV.find_rogue('temp_cool', useOptions=True)
+        print "Finding Rogue Heat..."
+        rogueHeat  = thisVAV.find_rogue('temp_heat', useOptions=True)
+        print "Finding Rogue Pressure..."
+        roguePress = thisVAV.find_rogue('pressure', useOptions=True)
 
         
 #def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None, \
@@ -729,9 +818,9 @@ class ConfigToDict(ConfigParser):
 
 
 # Switched over to this during debugging.
-#def configToDict(cParser):
-#    cDict = {}
-#    for section in cParser.sections():
+def configToDict(cParser):
+    cDict = {}
+    for section in cParser.sections():
         cDict[section] = {}
         for (key, value) in cParser.items(section):
             cDict[section][key] = value
@@ -744,9 +833,7 @@ def readconfig(configFileName):
     cp = ConfigParser()
     print configFileName
     cp.read(configFileName)
-    print cp.get('Query','where')
     configDict = configToDict(cp)
-    print configDict
     for key in configDict:
         subDict = configDict[key]
         for key2 in subDict:
@@ -760,7 +847,7 @@ def readconfig(configFileName):
     return configDict
     
     
-def readinput2():
+def readinput():
     if len(sys.argv) == 1:
         configFileName = raw_input("Please input config file name ==> ")
     elif len(sys.argv) == 2:
@@ -775,7 +862,7 @@ def readinput2():
     return configFileName
 
 
-def readInput():
+def readInputOld():
     def errPrint(openingMessage):
         print openingMessage
         print "Args should be:"
@@ -826,10 +913,10 @@ def readInput():
 #########################
 
 
-def main():
+def mainOld():
     # Get input file and its type from user (either through command line        
     # or, if args not supplied, prompt user for them)
-    inputFileType, inputFileName = readInput()
+    inputFileType, inputFileName = readInputOld()
 
     # Gather data specified or supplied by file.
     if inputFileType == 'j':
@@ -845,13 +932,14 @@ def main():
     testScriptCalc(data)
 
 
-def main2():
-    configFileName = readinput2()
+def main():
+    configFileName = readinput()
     cDict = readconfig(configFileName)
     queryInfo = cDict['Query']
     fileInfo = cDict['IO_Files']
     outOptions = cDict['Output_Options']
     dataAttr = cDict['Data_Attributes']
+    Options.assign(queryInfo, fileInfo, outOptions, dataAttr)
 
     if fileInfo['metadatajson'] is None:
         qStr = 'select ' + queryInfo['select'] + ' where ' + queryInfo['where']
@@ -860,6 +948,7 @@ def main2():
     else:
         with open(fileInfo['metadatajson']) as data_file:
             data = json.load(data_file)
+        data_file.close()
 
     if fileInfo['outputjson'] is not None:
         VavDataReader.dictToJson(data, fileInfo['outputjson'])
@@ -889,9 +978,8 @@ def main2():
         sys.stderr.flush()
         sys.exit(1)
 
-    print 'Done. YEAH!'
+    print 'Done.'
 
 ALL = '_A_////_L_////_L_'
 
-#main()
-main2()
+main()
