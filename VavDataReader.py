@@ -53,9 +53,12 @@ def getConfigInfo(fName):
     
 
 
-def queryData(serverAddr, whereClause):
-    c = SmapClient(serverAddr)
-    qList = c.query("select uuid, Path where " + whereClause)
+def queryData(address, where=None, fullQ=None):
+    c = SmapClient(address)
+    if fullQ is None:
+        qList = c.query("select uuid, Path where " + where)
+    else:
+        qList = c.query(fullQ)
     return qList
 
 
@@ -82,11 +85,18 @@ def dictToJson(d, outputFile):
     f.close()
 
 
-def importVavData(configFileName):
-    servAddr, whereClause = getConfigInfo(configFileName)
-    q = queryData(servAddr, whereClause)
+def importVavData(configFileName=None, server=None, query=None):
+    if configFileName is not None:
+        servAddr, whereClause = getConfigInfo(configFileName)
+        q = queryData(address=servAddr, where=whereClause)
+    elif server is not None and query is not None:
+        q = queryData(address=server, fullQ=query)
+    else:
+        sys.stderr.write("ERROR:  NOT ENOUGH INFORMATION PASSED. :3 :D\n")
+        sys.stderr.flush()
+        sys.exit(1)
     dataDict = constructData(q, SDaiVavParser())
-    dataDict['Server'] = servAddr
+    #dataDict['Server'] = servAddr
     return dataDict
     
     

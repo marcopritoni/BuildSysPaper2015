@@ -78,7 +78,7 @@ class VAV:
     # sensor_name.
     def _query_data(self, sensor_name, start_date, end_date, interpolation_time, limit=-1, externalID=None):
         client_obj = SmapClient(self.serverAddr)
-        if self.sensors.get(sensor_name) is None and externalID is None:
+        if (self.sensors is None or self.sensors.get(sensor_name) is None) and externalID is None:
             print 'no ' + sensor_name + ' info'
             return None
 
@@ -102,9 +102,13 @@ class VAV:
         # TODO: improve interpolation and dropna()
         return data_table
 
+    #####################
+    #START ROGUE METHODS#
+    #####################
+
     # Start rogue pressure function
     # Returns the percentage of damper positions that are far outside the expected and desired norm.
-    def _find_rogue_pressure(self, date_start, date_end, interpolation_time, threshold=95):
+    def _find_rogue_pressure(self, date_start, date_end, interpolation_time, threshold=95, getAll=False, inputFrame=None):
         if threshold is None:
             threshold = 95
         table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
@@ -118,17 +122,18 @@ class VAV:
 
     # Start Rogue Temp heat function
     # Returns the percentage of temperatures that are beyond the heating setpoint.
-    def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time='5Min', threshold=3):
+    def _find_rogue_temp_heat(self, date_start, date_end, interpolation_time='5Min', threshold=3, getAll=False, inputFrame=None):
         if threshold is None:
             threshold = 4
         # 
         if self.temp_control_type == 'Dual':
-             stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time) + threshold
+             stpt = self._query_data('HEAT_STPT', date_start, date_end, interpolation_time)
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
              if stpt is None:
                  return None
              if roomTemp is None:
                  return None
+             stpt = stpt + threshold
              total = float(roomTemp.count())
              count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[['HEAT_STPT']] > threshold).count())
              percent = (count / total) * 100
@@ -170,12 +175,14 @@ class VAV:
 
     # Start Rogue Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
-    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time='5Min', threshold=4):
+    def _find_rogue_temp_cool(self, date_start, date_end, interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None):
         if threshold is None:
             threshold = 4
         if self.temp_control_type == 'Dual':
              stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
              roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+             if stpt is None or roomTemp is None:
+                 return None
              total = float(roomTemp.count())
              count = float(roomTemp.where(stpt[['COOL_STPT']] - roomTemp[['ROOM_TEMP']] > threshold).count())
              percent = (count / total) * 100
@@ -220,17 +227,24 @@ class VAV:
     # Start Find Rogue
     # Finds rogue pressure, heat, or cool, based on rogue_type arg. Takes also query info and interpolation time,
     # which it passes to the rogue helper functions above
-    def find_rogue(self, rogue_type, threshold=None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min'):
+    # TODO (Ian): implement code that handles getAll and inputFrame args.
+    # getAll=True makes this return a timeseries of 0 and 1 values (1's representing rogue readings)
+    # inputFrame (might change this to inputFrames) makes this take in dataframes from already-queried data, rather than querying the data itself.
+    def find_rogue(self, rogue_type, threshold=None, date_start='1/1/2014', date_end='now', interpolation_time = '5Min', getAll=False, inputFrame=None):
         if rogue_type == 'pressure':
-            return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold)
+            return self._find_rogue_pressure(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
         elif rogue_type == 'temp_cool':
-            return self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold)
+            return self._find_rogue_temp_cool(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
         elif rogue_type == 'temp_heat':
-            return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold)
+            return self._find_rogue_temp_heat(date_start, date_end, interpolation_time, threshold, inputFrame=inputFrame)
         else:
             print rogue_type + ' is not a valid option for rogue_type'
 
     # End Find Rogue
+
+    ###################
+    #END ROGUE METHODS#
+    ###################
 
 
     # Called by calcDelta and calcReheat to operate on data, performing unit conversions.
@@ -260,7 +274,7 @@ class VAV:
     # are set to True.
     def calcThermLoad(self, start_date=None, end_date=None, \
                       interpolation_time='5min', limit=1000, avgVals=False, \
-                      sumVals=False, rawVals=False, testInput=False):
+                      sumVals=False, rawVals=False, testInput=False, inputFrames=None):
         ##global flowTemprGlobal
         ##global roomTemprGlobal
         ##global airFlowGlobal
@@ -270,18 +284,26 @@ class VAV:
 
         if testInput:
             temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
-            temprFlowStrDt.columns = ['temprFlow']
             roomTemprStrDt  = getCSVFrame('roomTemprTest.csv')
-            roomTemprStrDt.columns = ['roomTempr']
             volAirFlowStrDt = getCSVFrame('volAirFlowTest.csv')
-            volAirFlowStrDt.columns = ['volAirFlow']
+        elif inputFrames:
+            if inputFrames['Flow Temperature'] is None or \
+               inputFrames['Room Temperature'] is None or \
+               inputFrames['Flow Rate'] is None:
+                return None
+            temprFlowStrDt = inputFrames['Flow Temperature']
+            roomTemprStrDt = inputFrames['Room Temperature']
+            volAirFlowStrDt = inputFrames['Flow Rate']
         else:
             temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-            temprFlowStrDt.columns = ['temprFlow']
             roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
-            roomTemprStrDt.columns = ['roomTempr']
             volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
-            volAirFlowStrDt.columns = ['volAirFlow']
+
+        temprFlowStrDt.columns  = ['temprFlow']
+        roomTemprStrDt.columns  = ['roomTempr']
+        volAirFlowStrDt.columns = ['volAirFlow']
+        
+        
 
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True, how='outer')
         fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True, how='outer')
@@ -342,22 +364,31 @@ class VAV:
     # Calculates the difference between source temperature readings and air flow temperature readings from a room's vent. Only does so
     # for readings which coincide with a zero reading for valve-position. Returns the average of results.
     # NOTE: Returns in degrees celcius
-    def calcDelta(self, ahu, start_date=None, end_date=None, \
-                  interpolation_time='5min', limit=1000, testInput=False):
+    def calcDelta(self, ahu=None, start_date=None, end_date=None, \
+                  interpolation_time='5min', limit=1000, testInput=False, inputFrames=None):
         if testInput:
             temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
-            temprFlowStrDt.columns = ['temprFlow']
             sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
-            sourceTemprStrDt.columns = ['sourceTempr']
             vlvPosStrDt = getCSVFrame('vlvPosTest.csv')
-            vlvPosStrDt.columns = ['vlvPos']
+        elif inputFrames:
+            if inputFrames['Flow Temperature'] is None or \
+               inputFrames['Source Temperature'] is None or \
+               inputFrames['Valve Position'] is None:
+                return None
+            temprFlowStrDt = inputFrames['Flow Temperature']
+            sourceTemprStrDt = inputFrames['Source Temperature']
+            vlvPosStrDt = inputFrames['Valve Position']
         else:
+            assert type(ahu) is AHU
             temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-            temprFlowStrDt.columns = ['temprFlow']
             sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-            sourceTemprStrDt.columns = ['sourceTempr']
-            vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
-            vlvPosStrDt.columns = ['vlvPos']
+            vlvPosStrDt = self._query_data('VLV_POS',  start_date, end_date, interpolation_time, limit=limit)
+            
+
+        temprFlowStrDt.columns = ['temprFlow']
+        sourceTemprStrDt.columns = ['sourceTempr']
+        vlvPosStrDt.columns = ['vlvPos']
+        
 
         intermediate = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
         fullGrouping = intermediate.merge(vlvPosStrDt, right_index=True, left_index=True)
@@ -400,10 +431,10 @@ class VAV:
 
 
     
-    def calcReheat(self, ahu, delta, start_date=None, end_date=None, \
+    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None, \
                    interpolation_time='5min', limit=1000, avgVals=False, \
                    sumVals=False, rawVals=False, omitVlvOff=False, \
-                   testInput=False):
+                   testInput=False, inputFrames=None):
         ##global sourceTemprGlobal
         ##global valvePosGlobal
         if not (avgVals or sumVals or rawVals):
@@ -411,23 +442,34 @@ class VAV:
             avgVals = True
 
         if testInput:
-            temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
-            temprFlowStrDt.columns = ['temprFlow']
+            temprFlowStrDt    = getCSVFrame('temprFlowTest.csv')
             sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
-            sourceTemprStrDt.columns = ['sourceTempr']
-            vlvPosStrDt = getCSVFrame('vlvPosTest.csv')
-            vlvPosStrDt.columns = ['vlvPos']
-            volAirFlowStrDt = getCSVFrame('volAirFlowTest.csv')
-            volAirFlowStrDt.columns = ['volAirFlow']
+            vlvPosStrDt       = getCSVFrame('vlvPosTest.csv')
+            volAirFlowStrDt   = getCSVFrame('volAirFlowTest.csv')
+        elif inputFrames:
+            if inputFrames['Flow Temperature'] is None or \
+               inputFrames['Source Temperature'] is None or \
+               inputFrames['Valve Position'] is None or \
+               inputFrames['Flow Rate'] is None:
+                return None
+            temprFlowStrDt = inputFrames['Flow Temperature']
+            sourceTemprStrDt = inputFrames['Source Temperature']
+            vlvPosStrDt = inputFrames['Valve Position']
+            volAirFlowStrDt = inputFrames['Flow Rate']
         else:
-            temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-            temprFlowStrDt.columns = ['temprFlow']
+            assert type(ahu) is AHU and delta is not None
+            temprFlowStrDt    = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
             sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-            sourceTemprStrDt.columns = ['sourceTempr']
-            vlvPosStrDt = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
-            vlvPosStrDt.columns = ['vlvPos']
-            volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
-            volAirFlowStrDt.columns = ['volAirFlow']
+            vlvPosStrDt       = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
+            volAirFlowStrDt   = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+
+        
+        
+
+        temprFlowStrDt.columns   = ['temprFlow']
+        sourceTemprStrDt.columns = ['sourceTempr']
+        vlvPosStrDt.columns      = ['vlvPos']
+        volAirFlowStrDt.columns  = ['volAirFlow']
 
         interm1 = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
         interm2 = volAirFlowStrDt.merge(vlvPosStrDt, right_index=True, left_index=True)
@@ -474,54 +516,135 @@ class VAV:
         return retDict
 
 
-def readInput():
-    def errPrint(openingMessage):
-        print openingMessage
-        print "Args should be:"
-        print "python " + sys.argv[0] + " -j <filename>"
-        print "for json files, and"
-        print "python " + sys.argv[0] + " -c <filename>"
-        print "for config files."
-        print "Exiting."
-        
-    if len(sys.argv) < 2:
-        fType = raw_input("Use (j)son or (c)onfig file? ==> ")
-        if fType[0].lower() == 'j':
-            fType = 'j'
-        elif fType[0].lower() == 'c':
-            fType = 'c'
-        else:
-            print "Your input should start with a 'j' or 'c'. Exiting."
-            sys.exit()
-        fName = raw_input("Input filename ==> ")
-    elif len(sys.argv) == 2:
-        errPrint("You must specify which type of file you are using.")
-        sys.exit()
-    elif len(sys.argv) == 3:
-        if sys.argv[1][0] != '-' or \
-           (sys.argv[1][1] != 'j' and sys.argv[1][1] != 'c') or \
-           len(sys.argv[1]) != 2:
-            errPrint("File type specification argument not recognized.")
-            sys.exit()
-        else:
-            fType = sys.argv[1][1]
-            fName = sys.argv[2]
+###########################
+#BEGIN PROCESSING FUNCTION#
+###########################
+
+#self, ident, sensors, temp_control_type, serverAddr=None
+
+def processdata(data, servAddr,start_date='4/1/2015', end_date='4/2/2015',
+                interpolation_time='5min', limit=-1, VAV_Name=None,
+                sensorDict=None):
+
+    testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
+                  "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
+    threshold = 4
+    preshold = 95
+    if sensorDict is None:
+        sensorNames = {'Flow Temperature':['AI_3'],
+                           'Valve Position':['VLV_POS'],
+                           'Flow Rate':['AIR_VOLUME'],
+                           'Room Temperature':['ROOM_TEMP']}
     else:
-        errPrint("Too many arguments.")
-        sys.exit()
+        sensorNames = sensorDict
 
-    return fType, fName
+    qVAV= VAV(None, None, None, None)
+    sourceTempr = qVAV._query_data(None, start_date, end_date,
+                     interpolation_time,
+                     limit=limit,
+                     externalID=testAHU.uuidSAT)
+
+    frames = {'Source Temperature':sourceTempr}
+    
+    if VAV_Name is None:
+        retDict = {'VAV':[], 'Thermal Load':[],'Delta T':[],
+                   'Rogue Heat':[], 'Rogue Cool':[], 'Rogue Pressure':[], 'Reheat':[]}
+        VAVs = [VAV(key, data[key], 'Current', servAddr) for key in data] # TODO:
+        print "VAV count: " + str(len(VAVs))
+        for thisVAV in VAVs:
+            frames = {'Source Temperature':sourceTempr}
+            
+            for key in sensorNames:
+                shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
+                if shared:
+                    frames[key] = thisVAV._query_data(shared[0], start_date,
+                                                      end_date,
+                                                      interpolation_time, limit)
+                else:
+                    frames[key] = None
+
+            tl = thisVAV.calcThermLoad(start_date=start_date,
+                                       end_date=end_date,
+                                       interpolation_time=interpolation_time,
+                                       limit=limit, avgVals=True, sumVals=False,
+                                       rawVals=False, inputFrames=frames)
+            dt = thisVAV.calcDelta(start_date=start_date, end_date=end_date,
+                                   interpolation_time=interpolation_time,
+                                   limit=limit, inputFrames=frames)
+            rh = thisVAV.calcReheat(start_date=start_date,end_date=end_date,
+                                   interpolation_time=interpolation_time,
+                                   limit=limit, avgVals=True,rawVals=False,
+                                   inputFrames=frames)
+            if tl is not None:
+                tl = tl['Avg']
+            if rh is not None:
+                rh = rh['Avg']
+
+            print 'a'
+            rogueCool  = thisVAV.find_rogue('temp_cool', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+            print 'b'
+            rogueHeat  = thisVAV.find_rogue('temp_heat', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+            print 'c'
+            roguePress = thisVAV.find_rogue('pressure', threshold=preshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+            print 'd'
+            
+
+            retDict['Thermal Load'].append(tl)
+            retDict['Delta T'].append(dt)
+            retDict['Reheat'].append(rh)
+
+            retDict['Rogue Heat'].append(rogueHeat)
+            retDict['Rogue Cool'].append(rogueCool)
+            retDict['Rogue Pressure'].append(roguePress)
+            retDict['VAV'].append(thisVAV.ID)
+            print thisVAV.ID + " complete."
+        return pd.DataFrame(retDict)
+            
+                
+    else:
+        thisVAV = VAV(VAV_Name, data[VAV_Name], 'dual', servAddr)
+        for key in sensorNames:
+            shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
+            if shared:
+                frames[key] = thisVAV._query_data(shared[0], start_date,
+                                                    end_date,
+                                                    interpolation_time, limit)
+            else:
+                frames[key] = None
+
+        tl = thisVAV.calcThermLoad(self, start_date=start_date,
+                                   end_date=end_date,
+                                   interpolation_time=interpolation_time,
+                                   limit=limit, avgVals=True, sumVals=False,
+                                   rawVals=True)
+        dt = thisVAV.calcDelta(self, start_date=start_date, end_date=end_date,
+                               interpolation_time=interpolation_time,
+                               limit=limit, inputFrames=frames)
+        rh = thisVAV.calcDelta(start_date=start_date,end_date=end_date,
+                               interpolation_time=interpolation_time,
+                               limit=limit, avgVals=True,rawVals=True,
+                               inputFrames=True)
+
+        rogueCool  = find_rogue('temp_cool', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+        rogueHeat  = find_rogue('temp_heat', threshold=threshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+        roguePress = find_rogue('pressure', threshold=preshold, date_start=start_date, date_end=end_date, interpolation_time = '5Min')
+
         
-    #if len(sys.argv) != 2:
-    #    print "Improper arguments used. Format:"
-    #    print "python " + sys.argv[0] + " <config file name>"
-    #    sys.exit()
+#def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None, \
+#                   interpolation_time='5min', limit=1000, avgVals=False, \
+#                   sumVals=False, rawVals=False, omitVlvOff=False, \
+#                   testInput=False, inputFrames=None):
+# self, sensor_name, start_date, end_date, interpolation_time, limit=-1, externalID=None
 
-    # return sys.argv[1]
+
+#########################
+#END PROCESSING FUNCTION#
+#########################
 
 
-# Begin Test Script
-
+###################
+#START TEST SCRIPT#
+###################
 
 def testScriptRogue(data):
     
@@ -583,6 +706,126 @@ def testScriptCalc(data):
     #    print str(t) + " <<<>>> " + str(v)
 
 
+#################
+#END TEST SCRIPT#
+#################
+
+
+###########################
+#START INPUT PREPROCESSING#
+###########################
+
+
+# Credit for this subclass goes to
+# http://prosseek.blogspot.com/2012/10/reading-ini-file-into-dictionary-in.html
+# (Not currently used)
+class ConfigToDict(ConfigParser):
+    def dictionarify(self):
+        d = dict(self._sections)
+        for k in d:
+            d[k] = dict(self._defaults, **d[k])
+            d[k].pop('__name__', None)
+        return d
+
+
+# Switched over to this during debugging.
+#def configToDict(cParser):
+#    cDict = {}
+#    for section in cParser.sections():
+        cDict[section] = {}
+        for (key, value) in cParser.items(section):
+            cDict[section][key] = value
+    return cDict
+            
+        
+
+
+def readconfig(configFileName):
+    cp = ConfigParser()
+    print configFileName
+    cp.read(configFileName)
+    print cp.get('Query','where')
+    configDict = configToDict(cp)
+    print configDict
+    for key in configDict:
+        subDict = configDict[key]
+        for key2 in subDict:
+            operItm = subDict[key2]
+            if operItm == 'None' or operItm == 'True' or operItm == 'False':
+                subDict[key2] = eval(operItm)
+            elif operItm == 'All':
+                subDict[key2] = ALL
+            elif len(operItm) > 0 and operItm[0] == '\\':
+                subDict[key2] = operItm[1:]
+    return configDict
+    
+    
+def readinput2():
+    if len(sys.argv) == 1:
+        configFileName = raw_input("Please input config file name ==> ")
+    elif len(sys.argv) == 2:
+        configFileName = sys.argv[1]
+    else:
+        sys.stderr.write("ERROR: Incorrect number of arguments provided...!\n"
+                         "Should be:\n"
+                         "python " + sys.argv[0] + " config_file_name\n")
+        sys.stderr.flush()
+        sys.exit(1)
+
+    return configFileName
+
+
+def readInput():
+    def errPrint(openingMessage):
+        print openingMessage
+        print "Args should be:"
+        print "python " + sys.argv[0] + " -j <filename>"
+        print "for json files, and"
+        print "python " + sys.argv[0] + " -c <filename>"
+        print "for config files."
+        print "Exiting."
+        
+    if len(sys.argv) < 2:
+        fType = raw_input("Use (j)son or (c)onfig file? ==> ")
+        if fType[0].lower() == 'j':
+            fType = 'j'
+        elif fType[0].lower() == 'c':
+            fType = 'c'
+        else:
+            print "Your input should start with a 'j' or 'c'. Exiting."
+            sys.exit()
+        fName = raw_input("Input filename ==> ")
+    elif len(sys.argv) == 2:
+        errPrint("You must specify which type of file you are using.")
+        sys.exit()
+    elif len(sys.argv) == 3:
+        if sys.argv[1][0] != '-' or \
+           (sys.argv[1][1] != 'j' and sys.argv[1][1] != 'c') or \
+           len(sys.argv[1]) != 2:
+            errPrint("File type specification argument not recognized.")
+            sys.exit()
+        else:
+            fType = sys.argv[1][1]
+            fName = sys.argv[2]
+    else:
+        errPrint("Too many arguments.")
+        sys.exit()
+
+    return fType, fName
+        
+    #if len(sys.argv) != 2:
+    #    print "Improper arguments used. Format:"
+    #    print "python " + sys.argv[0] + " <config file name>"
+    #    sys.exit()
+
+    # return sys.argv[1]
+
+
+#########################
+#END INPUT PREPROCESSING#
+#########################
+
+
 def main():
     # Get input file and its type from user (either through command line        
     # or, if args not supplied, prompt user for them)
@@ -602,4 +845,53 @@ def main():
     testScriptCalc(data)
 
 
-main()
+def main2():
+    configFileName = readinput2()
+    cDict = readconfig(configFileName)
+    queryInfo = cDict['Query']
+    fileInfo = cDict['IO_Files']
+    outOptions = cDict['Output_Options']
+    dataAttr = cDict['Data_Attributes']
+
+    if fileInfo['metadatajson'] is None:
+        qStr = 'select ' + queryInfo['select'] + ' where ' + queryInfo['where']
+        data = VavDataReader.importVavData(server=queryInfo['client'],
+                                           query=qStr)
+    else:
+        with open(fileInfo['metadatajson']) as data_file:
+            data = json.load(data_file)
+
+    if fileInfo['outputjson'] is not None:
+        VavDataReader.dictToJson(data, fileInfo['outputjson'])
+
+    if fileInfo['outputcsv'] is not None or outOptions['printtoscreen']:
+        print "Preprocessing finished. Processing now."
+        if outOptions['vav'] is ALL:
+            processed = processdata(data, queryInfo['client'])
+        else:
+            processed = processdata(data, queryInfo['client'], outOptions['vav'])
+        print "Done processing."
+        if outOptions['printtoscreen']:
+            pd.set_option('display.max_rows', len(processed))
+            print processed
+            pd.reset_option('display.max_rows')
+        if fileInfo['outputcsv'] is not None:
+           processed.to_csv(fileInfo['outputcsv'])
+    elif fileInfo['outputjson'] is None:
+        sys.stderr.write("ERROR: No output specified.\n"
+                         "In config file, at least one of the following should"
+                         " be true:\n"
+                         "- outputJSON is set to something other than None\n"
+                         "- outputCSV is set to something other than None\n"
+                         "- printToScreen is set to True.\n"
+                         "Please modify the config file to satisfy at least "
+                         "one of these.\n")
+        sys.stderr.flush()
+        sys.exit(1)
+
+    print 'Done. YEAH!'
+
+ALL = '_A_////_L_////_L_'
+
+#main()
+main2()
