@@ -277,7 +277,6 @@ class VAV:
     # Start Find Critical
     # Finds critical pressure, heat, or cool, based on critical_type arg. Takes also query info and interpolation time,
     # which it passes to the critical helper functions above
-    # TODO (Ian): implement code that handles getAll and inputFrame args.
     # getAll=True makes this return a timeseries of 0 and 1 values (1's representing critical readings)
     # inputFrame (might change this to inputFrames) makes this take in dataframes from already-queried data, rather than querying the data itself.
     def find_critical(self, critical_type, threshold=None, date_start='1/1/2014',
@@ -375,21 +374,10 @@ class VAV:
         intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True, how='outer')
         fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True, how='outer')
         # fullGrouping = fullGrouping.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
-        # TODO: Additional interpolate
         
         temprFlowStreamData  = list(fullGrouping['temprFlow'])
         roomTemprStreamData  = list(fullGrouping['roomTempr'])
         volAirFlowStreamData = list(fullGrouping['volAirFlow'])
-
-        ##flowTemprGlobal = temprFlowStreamData
-        ##roomTemprGlobal = roomTemprStreamData
-        ##airFlowGlobal   = volAirFlowStreamData
-
-        
-        #temprFlowStreamData  = fullGrouping['temprFlow']
-        #roomTemprStreamData  = fullGrouping['roomTempr']
-        #volAirFlowStreamData = fullGrouping['volAirFlow']
-
         
         RHO = eval(Options.data['rho_val']) * pq.kg/pq.m**3
         C = eval(Options.data['c_val']) * pq.J/(pq.kg*pq.degC)
@@ -406,16 +394,7 @@ class VAV:
         
         retDict = {}
         newList = list([float(e) for e in load])
-        ### Begin Debug Script ###
-        #myMappy = map(primitiveThermLoad, temprFlowStreamData, roomTemprStreamData, volAirFlowStreamData)
-        #for n, m in zip(newList, myMappy):
-        #    uLineSq = '\033[4m'
-        #    dStr = ""
-        #    if abs(m - n) > 0.1:
-        #        dStr += uLineSq
-        #    dStr += "Output: " + str(n) + ", Confirmation: " + str(m) + ", Diff: " + str(abs(m - n))
-        #    print dStr
-        ###  End Debug Script  ###
+
         if sumVals:
             retDict['Sum'] = sum(newList)
         if avgVals:
@@ -473,33 +452,11 @@ class VAV:
 
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData)
         newList = list([float(x) for x in newList])
-        ### Begin Debug Script ###
-        #myMappy = map(primitiveDelta, temprFlowStreamData, sourceTemprStreamData)
-        #for n, m in zip(newList, myMappy):
-        #    uLineSq = '\033[4m'
-        #    dStr = ""
-        #    if abs(m - n) > 0.1:
-        #        dStr += uLineSq
-        #    dStr += "Output: " + str(n) + ", Confirmation: " + str(m) + ", Diff: " + str(abs(m - n))
-        #    print dStr
-        ###  End Debug Script  ###
+
         if len(newList) == 0:
             return 0.0
 
         return sum(newList) / len(newList)
-
-        #total = 0
-        #accum = 0
-
-        #for f, s, v in zip(temprFlowStreamData, sourceTemprStreamData, vlvPosStreamData):
-        #    if v == 0:
-        #        accum += self._reheatCalcSingle(f, s)
-        #        total += 1
-
-        #if total == 0:
-        #    return 0
-        
-        #return accum / total
 
 
     
@@ -507,8 +464,6 @@ class VAV:
                    interpolation_time='5min', limit=1000, avgVals=False, \
                    sumVals=False, rawVals=False, omitVlvOff=False, \
                    testInput=False, inputFrames=None, useOptions=False):
-        ##global sourceTemprGlobal
-        ##global valvePosGlobal
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
@@ -562,25 +517,10 @@ class VAV:
         sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
         volAirFlowStreamData   = list(fullGrouping['volAirFlow'])
         valvePosStreamData     = list(fullGrouping['vlvPos'])
-
-        ##sourceTemprGlobal = sourceTemprStreamData
-        ##valvePosGlobal = valvePosStreamData
-        
-        #self._reheatCalcSingle(flowTempValue, sourceTempValue, flowValue=None, deltaT=None)
         
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
         newList = list([float(x) for x in newList])
-        ### Begin Debug Script ###
-        #myMappy = map(primitiveReheat, temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, \
-        #              [delta for i in range(len(temprFlowStreamData))])
-        #for n, m in zip(newList, myMappy):
-        #    uLineSq = '\033[4m'
-        #    dStr = ""
-        #    if abs(m - n) > 0.1:
-        #        dStr += uLineSq
-        #    dStr += "Output: " + str(n) + ", Confirmation: " + str(m) + ", Diff: " + str(abs(m - n))
-        #    print dStr
-        ###  End Debug Script  ###
+
         retDict = {}
         if sumVals:
             retDict['Sum'] = sum(newList)
@@ -732,22 +672,6 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
         frames['Critical Heat'] = criticalHeat
         frames['Critical Pressure'] = criticalPress
 
-        #t1 = renamecol(tl, 'Thermal Load')
-        #rh = renamecol(rh, 'Reheat')
-        #criticalCool = renamecol(criticalCool, 'Critical Cool')
-        #criticalHeat = renamecol(criticalHeat, 'Critical Heat')
-        #criticalPress = renamecol(criticalPress, 'Critical Pressure')
-        #tl.columns = ['Thermal Load']
-        #rh.columns = ['Reheat']
-        #criticalCool.columns = ['Critical Cool']
-        #criticalHeat.columns = ['Critical Heat']
-        #criticalPress.columns = ['Critical Pressure']
-
-        #calcs = mergerwrapper(tl, rh)
-        #criticalsIntermediate = mergerwrapper(criticalCool, criticalHeat)
-        #criticals = mergerwrapper(criticalsIntermediate, criticalPress)
-        #newTables = mergerwrapper(calcs, criticals)
-
         curGroup = None
         for key in frames:
             if frames[key] is not None:
@@ -762,21 +686,7 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
                 cols.append(name)
                 fullGroup = fullGroup[cols]
 
-        #calcs = tl.merge(rh, right_index=True, left_index=True, how='outer')
-        #criticalsIntermediate = criticalCool.merge(criticalHeat, right_index=True, left_index=True, how='outer')
-        #criticals = criticalsIntermediate.merge(criticalPress, right_index=True, left_index=True, how='outer')
-
-        #fullGroup = calcs.merge(criticals, right_index=True, left_index=True, how='outer')
         return fullGroup
-
-        
-
-        
-#def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None, \
-#                   interpolation_time='5min', limit=1000, avgVals=False, \
-#                   sumVals=False, rawVals=False, omitVlvOff=False, \
-#                   testInput=False, inputFrames=None):
-# self, sensor_name, start_date, end_date, interpolation_time, limit=-1, externalID=None
 
 
 #########################
