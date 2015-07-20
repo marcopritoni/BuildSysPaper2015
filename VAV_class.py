@@ -181,7 +181,8 @@ class VAV:
             return None
         if roomTemp is None:
             return None
-
+        
+        ### Modify ###
         if self.temp_control_type == 'Dual':
             stpt = stpt + threshold
         elif self.temp_control_type == 'Current':
@@ -211,72 +212,60 @@ class VAV:
     # Start Critical Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
     def _find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None, useOptions=False):
+        if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
+            print 'unrecognized temperature control type'
+            return None
+        
         if threshold is None and not useOptions:
             threshold = 4
         elif useOptions:
             threshold = eval(Options.data['cool_threshold'])
-        
+
+        ### Query ###
         if self.temp_control_type == 'Dual':
-             if useOptions:
-                 stpt = self._query_data('COOL_STPT', useOptions=True)
-                 roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
-             else:
-                 stpt = self._query_data('COOL_STPT', date_start, date_end, interpolation_time)
-                 roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-             if stpt is None or roomTemp is None:
-                 return None
-             if getAll:
-                return self._getCriticalTable(stpt, colName1='COOL_STPT', second=roomTemp, colName2='ROOM_TEMP', threshold=threshold, ineq='>', op1=1)
-             total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['COOL_STPT']] - roomTemp[['ROOM_TEMP']] > threshold).count())
-             percent = (count / total) * 100
-             return percent
-
+            stptName = 'COOL_STPT'
         elif self.temp_control_type == 'Single':
-             if useOptions:
-                 stpt = self._query_data('STPT', useOptions=True) - threshold
-                 roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
-             else:
-                 stpt = self._query_data('STPT', date_start, date_end, interpolation_time) - threshold
-                 roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-             if getAll:
-                return self._getCriticalTable(stpt, colName1='STPT', second=roomTemp, colName2='ROOM_TEMP', threshold=threshold, ineq='>', op1=1)
-             total = float(roomTemp.count())
-             count = float(roomTemp.where(stpt[['STPT']] - roomTemp[['ROOM_TEMP']] > threshold).count())
-             percent = (count / total) * 100
-             return percent
-
+            stptName = 'STPT'
         elif self.temp_control_type == 'Current':
-            if useOptions:
+            stptName = 'CTL_STPT'
+        
+        if useOptions:
+            if self.temp_control_type == 'Current':
                 table = self._query_data('HEAT.COOL', useOptions=True)
-                roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
-                stpt = self._query_data('CTL_STPT', useOptions=True)
-            else:
+            roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
+            stpt = self._query_data(stptName, useOptions=True)
+        else:
+            if self.temp_control_type == 'Current':
                 table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
-                roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-                stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
-
-                
-            if table is None:
-                return None
-            if stpt is None:
-                 return None
-            if roomTemp is None:
-                 return None
+            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
+            stpt = self._query_data(stptName, date_start, date_end, interpolation_time)
+        if self.temp_control_type == 'Current' and table is None:
+            return None
+        if stpt is None:
+            return None
+        if roomTemp is None:
+            return None
+        
+        ### Modify ###
+        if self.temp_control_type == 'Current':
             stpt = int(stpt.max())
             new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
             new_table = new_table.where(new_table[['HEAT.COOL']] == 0, new_table).fillna(new_table[['ROOM_TEMP']].mean())
-            # # # # #
+        
+        ### Output ###
+        if self.temp_control_type == 'Current':
             if getAll:
                 return self._getCriticalTable(new_table, colName1='ROOM_TEMP', second=stpt, threshold=threshold, ineq='>', op1=2)
-            # # # # #
             total = float(new_table[['ROOM_TEMP']].count())
             count = float(new_table[['ROOM_TEMP']].where(stpt - new_table[['ROOM_TEMP']] > threshold).count())
-            percent = (count / total) * 100
-            return percent
-
         else:
-            print 'unrecognized temperature control type'
+            if getAll:
+                return self._getCriticalTable(stpt, colName1=stptName, second=roomTemp, colName2='ROOM_TEMP', threshold=threshold, ineq='>', op1=1)
+            total = float(roomTemp.count())
+            count = float(roomTemp.where(stpt[[stptName]] - roomTemp[['ROOM_TEMP']] > threshold).count())
+
+        percent = (count / total) * 100
+        return percent
     # End Critical Temp Cool Function
 
     # Finds both heating and cooling setpoint critical temperature percentages. Returns them as a [heat percentage, cool percentage] pair.
