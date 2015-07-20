@@ -9,24 +9,7 @@ import quantities as pq
 import sys
 import VavDataReader
 import csv
-
-
-#####################
-#START OPTIONS CLASS#
-#####################
-
-
-class Options:
-    @staticmethod
-    def assign(qInfo, fInfo, outOptions, dataAttr):
-        Options.query = qInfo
-        Options.files = fInfo
-        Options.output = outOptions
-        Options.data = dataAttr
-
-###################
-#END OPTIONS CLASS#
-###################
+from configoptions import Options
 
 # Represents a given AHU
 class AHU:
@@ -702,17 +685,17 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
 # Credit for this subclass goes to
 # http://prosseek.blogspot.com/2012/10/reading-ini-file-into-dictionary-in.html
 # (Not currently used)
-class ConfigToDict(ConfigParser):
-    def dictionarify(self):
-        d = dict(self._sections)
-        for k in d:
-            d[k] = dict(self._defaults, **d[k])
-            d[k].pop('__name__', None)
-        return d
+#class ConfigToDict(ConfigParser):
+#    def dictionarify(self):
+#        d = dict(self._sections)
+#        for k in d:
+#            d[k] = dict(self._defaults, **d[k])
+#            d[k].pop('__name__', None)
+#        return d
 
 
 # Switched over to this during debugging.
-def configToDict(cParser):
+def config_to_dict(cParser):
     cDict = {}
     for section in cParser.sections():
         cDict[section] = {}
@@ -727,7 +710,7 @@ def readconfig(configFileName):
     cp = ConfigParser()
     print configFileName
     cp.read(configFileName)
-    configDict = configToDict(cp)
+    configDict = config_to_dict(cp)
     for key in configDict:
         subDict = configDict[key]
         for key2 in subDict:
@@ -762,40 +745,41 @@ def readinput():
 
 
 def main():
-    configFileName = readinput()
-    cDict = readconfig(configFileName)
-    queryInfo = cDict['Query']
-    fileInfo = cDict['IO_Files']
-    outOptions = cDict['Output_Options']
-    dataAttr = cDict['Data_Attributes']
-    Options.assign(queryInfo, fileInfo, outOptions, dataAttr)
+    Options.load()
+    #configFileName = readinput()
+    #cDict = readconfig(configFileName)
+    #queryInfo = cDict['Query']
+    #fileInfo = cDict['IO_Files']
+    #outOptions = cDict['Output_Options']
+    #dataAttr = cDict['Data_Attributes']
+    #Options.assign(queryInfo, fileInfo, outOptions, dataAttr)
 
-    if fileInfo['metadatajson'] is None:
-        qStr = 'select ' + queryInfo['select'] + ' where ' + queryInfo['where']
-        data = VavDataReader.importVavData(server=queryInfo['client'],
+    if Options.files['metadatajson'] is None:
+        qStr = 'select ' + Options.query['select'] + ' where ' + Options.query['where']
+        data = VavDataReader.importVavData(server=Options.query['client'],
                                            query=qStr)
     else:
-        with open(fileInfo['metadatajson']) as data_file:
+        with open(Options.files['metadatajson']) as data_file:
             data = json.load(data_file)
         data_file.close()
 
-    if fileInfo['outputjson'] is not None:
-        VavDataReader.dictToJson(data, fileInfo['outputjson'])
+    if Options.files['outputjson'] is not None:
+        VavDataReader.dictToJson(data, Options.files['outputjson'])
 
-    if fileInfo['outputcsv'] is not None or outOptions['printtoscreen']:
+    if Options.files['outputcsv'] is not None or Options.output['printtoscreen']:
         print "Preprocessing finished. Processing now."
-        if outOptions['vav'] is ALL:
-            processed = processdata(data, queryInfo['client'])
+        if Options.output['vav'] is ALL:
+            processed = processdata(data, Options.query['client'])
         else:
-            processed = processdata(data, queryInfo['client'], outOptions['vav'])
+            processed = processdata(data, Options.query['client'], Options.output['vav'])
         print "Done processing."
-        if outOptions['printtoscreen']:
+        if Options.output['printtoscreen']:
             pd.set_option('display.max_rows', len(processed))
             print processed
             pd.reset_option('display.max_rows')
-        if fileInfo['outputcsv'] is not None:
-           processed.to_csv(fileInfo['outputcsv'])
-    elif fileInfo['outputjson'] is None:
+        if Options.files['outputcsv'] is not None:
+           processed.to_csv(Options.files['outputcsv'])
+    elif Options.files['outputjson'] is None:
         sys.stderr.write("ERROR: No output specified.\n"
                          "In config file, at least one of the following should"
                          " be true:\n"
