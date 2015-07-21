@@ -9,7 +9,129 @@ import quantities as pq
 import sys
 import VavDataReader
 import csv
+import copy
 from configoptions import Options
+
+
+class Sensor:
+    # self.sType
+    # self.uuid
+    # self.owner
+
+    def __init__(self, sensorType=None, sensorUUID=None, sensorOwner=None):
+        # assert sensorType in Options.names.keys()
+        self.sType = sensorType
+        self.uuid = sensorUUID
+        self.owner = sensorOwner
+
+
+#######################
+#START RENAME FUNCTION#
+#######################
+
+'''Renames keys in sd to standard names specified.
+   dict is returned which is copy of sd with renamed keys'''
+def rename_sensors(sd):
+    sDict = copy.deepcopy(sd)
+    repCounts = {}
+    for key in sDict:
+        trueName = Options.rNames.get(key)
+        if trueName is not None:
+            if trueName in sDict.keys():
+                print "REPEAT DETECTED."
+            else:
+                sDict[Options.rNames[key]] = sDict[key]
+                repCounts[trueName] = 1
+                del sDict[key]
+
+    return sDict
+#####################
+#END RENAME FUNCTION#
+#####################
+
+######################
+#START QUERY FUNCTION#
+######################
+# Queries for stream data between from a sensor, in user-specified start and end dates and limit.
+# Outputs data as pandas DataFrame object, with data interpolated by interpolation_time.
+# If externalID is given a uuid value, it will query by that ID rather than the one specified by
+# sensor_name.
+
+
+def query_data(sensorObj, start_date='4/1/2015',
+               end_date='4/2/2015', interpolation_time='5min', limit=-1,
+               externalID=None, useOptions=False):
+    if useOptions:
+        start_date = Options.data['starttime']
+        end_date = Options.data['endtime']
+        interpolation_time = Options.data['interpolationtime']
+        limit = eval(Options.data['limit'])
+        serverAddr = Options.query['client']
+    else:
+        serverAddr = sensorObj.owner.serverAddr
+        
+    client_obj = SmapClient(serverAddr)
+    if (sensorObj is None or sensorObj.uuid is None) and externalID is None:
+        if sensorObj is None:
+            print "Requested sensor not found."
+        else:
+            print 'no ' + sensorObj.sType + ' info'
+        return None
+
+    if externalID is None:
+        sensorID = sensorObj.uuid
+    else:
+        sensorID = externalID
+    if start_date is None and end_date is None:
+        #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+        # x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+        q = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
+    else:
+        #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+        q = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
+
+    data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensorObj.sType])
+    data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
+    data_table.set_index('Time', inplace=True)
+    data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+    return data_table
+
+
+def query_data_old(VAV_Obj, sensor_name, start_date='4/1/2015',
+               end_date='4/2/2015', interpolation_time='5min', limit=-1,
+               externalID=None, useOptions=False):
+    if useOptions:
+        start_date = Options.data['starttime']
+        end_date = Options.data['endtime']
+        interpolation_time = Options.data['interpolationtime']
+        limit = eval(Options.data['limit'])
+        
+    client_obj = SmapClient(VAV_Obj.serverAddr)
+    if (VAV_Obj.sensors is None or VAV_Obj.sensors.get(sensor_name) is None) and externalID is None:
+        print 'no ' + sensor_name + ' info'
+        return None
+
+
+    if externalID is None:
+        sensorID = VAV_Obj.sensors.get(sensor_name)[0]
+    else:
+        sensorID = externalID
+    if start_date is None and end_date is None:
+        #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+        # x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
+        q = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
+    else:
+        #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
+        q = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
+
+    data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensor_name])
+    data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
+    data_table.set_index('Time', inplace=True)
+    data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+    return data_table
+####################
+#END QUERY FUNCTION#
+####################
 
 # Represents a given AHU
 class AHU:
@@ -25,55 +147,31 @@ class VAV:
     def __init__(self, ident, sensors, temp_control_type, serverAddr=None):
         self.ID = ident
         self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
+        self._make_sensor_objs()
         self.temp_control_type = temp_control_type # The type of set point data available for this VAV box
         if serverAddr is None:
             self.serverAddr = "http://new.openbms.org/backend"
         else:
             self.serverAddr = serverAddr
 
-    # Queries for stream data between from a sensor, in user-specified start and end dates and limit.
-    # Outputs data as pandas DataFrame object, with data interpolated by interpolation_time.
-    # If externalID is given a uuid value, it will query by that ID rather than the one specified by
-    # sensor_name.
-    def _query_data(self, sensor_name, start_date='4/1/2015',
-                    end_date='4/2/2015', interpolation_time='5min', limit=-1,
-                    externalID=None, useOptions=False):
-        if useOptions:
-            start_date = Options.data['starttime']
-            end_date = Options.data['endtime']
-            interpolation_time = Options.data['interpolationtime']
-            limit = eval(Options.data['limit'])
-            
-        client_obj = SmapClient(self.serverAddr)
-        if (self.sensors is None or self.sensors.get(sensor_name) is None) and externalID is None:
-            print 'no ' + sensor_name + ' info'
-            return None
 
+    def _make_sensor_objs(self):
+        for key in self.sensors:
+            self.sensors[key] = Sensor(key, self.sensors[key][0], self)
 
-        if externalID is None:
-            sensorID = self.sensors.get(sensor_name)[0]
-        else:
-            sensorID = externalID
-        if start_date is None and end_date is None:
-            #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-            # x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
-            q = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
-        else:
-            #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-            q = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
+    def getsensor(self, sType):
+        x = self.sensors.get(sType)
+        if x is None:
+            return Sensor(sType)
 
-        data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensor_name])
-        data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
-        data_table.set_index('Time', inplace=True)
-        data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
-        # TODO: improve interpolation and dropna()
-        return data_table
+        return x
 
+        
     ########################
     #START CRITICAL METHODS#
     ########################
 
-    def _getCriticalTable(self, firstFrame, colName1='DMP_POS', colName2=None, second=None, threshold=5, ineq='>=', op1=1):
+    def _getCriticalTable(self, firstFrame, colName1='Damper_Position', colName2=None, second=None, threshold=5, ineq='>=', op1=1):
         combined = False
         if type(second) is pd.DataFrame:
             frm = firstFrame.merge(second, right_index=True, left_index=True, how='inner')
@@ -115,15 +213,15 @@ class VAV:
             threshold = 95
         if useOptions:
             threshold = eval(Options.data['press_threshold'])
-            table = self._query_data('DMPR_POS', useOptions=True)
+            table = query_data(self.getsensor('Damper_Position'), useOptions=True)
         else:
-            table = self._query_data('DMPR_POS', date_start, date_end, interpolation_time)
+            table = query_data(self.getsensor('Damper_Position'), date_start, date_end, interpolation_time)
         if table is None:
             return None
         if getAll:
-            return self._getCriticalTable(table, colName1='DMPR_POS', colName2=None, second=None, threshold=threshold, ineq='>=', op1=1)      
+            return self._getCriticalTable(table, colName1='Damper_Position', colName2=None, second=None, threshold=threshold, ineq='>=', op1=1)      
         total = float(table.count())
-        count = float(table.where(table[['DMPR_POS']] >= threshold).count())
+        count = float(table.where(table[['Damper_Position']] >= threshold).count())
         percent = (count / total) * 100
         return percent
     # End critical pressure function
@@ -143,21 +241,21 @@ class VAV:
 
         ### Query ###
         if self.temp_control_type == 'Dual':
-            stptName = 'HEAT_STPT'
+            stptName = 'Heat_Set_Point'
         elif self.temp_control_type == 'Single':
-            stptName = 'STPT'
+            stptName = 'Set_Point'
         elif self.temp_control_type == 'Current':
-            stptName = 'CTL_STPT'
+            stptName = 'Set_Point'
         if useOptions:
             if self.temp_control_type == 'Current':
-                table = self._query_data('HEAT.COOL', useOptions=True)
-            roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
-            stpt = self._query_data(stptName, useOptions=True)
+                table = query_data(self.getsensor('Heat_Cool'), useOptions=True)
+            roomTemp = query_data(self.getsensor('Room_Temperature'), useOptions=True)
+            stpt = query_data(self.getsensor(stptName), useOptions=True)
         else:
             if self.temp_control_type == 'Current':
-                table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
-            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-            stpt = self._query_data('CTL_STPT', date_start, date_end, interpolation_time)
+                table = query_data(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
+            roomTemp = query_data(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
+            stpt = query_data(self.getsensor('Set_Point'), date_start, date_end, interpolation_time)
         if self.temp_control_type == 'Current' and table is None:
             return None
         if stpt is None:
@@ -171,23 +269,23 @@ class VAV:
         elif self.temp_control_type == 'Current':
             stpt = int(stpt.min())
             new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
-            new_table = new_table.where(new_table[['HEAT.COOL']] == 1, new_table).fillna(new_table[['ROOM_TEMP']].mean())
+            new_table = new_table.where(new_table[['Heat_Cool']] == 1, new_table).fillna(new_table[['Room_Temperature']].mean())
 
         ### Output ###
         if getAll:
             if self.temp_control_type == 'Current':
-                return self._getCriticalTable(roomTemp, colName1='ROOM_TEMP', second=stpt, colName2=None, threshold=threshold, ineq='>', op1=1)
+                return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=None, threshold=threshold, ineq='>', op1=1)
             else:
-                return self._getCriticalTable(roomTemp, colName1='ROOM_TEMP', second=stpt, colName2=stptName, threshold=threshold, ineq='>', op1=1)
+                return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=stptName, threshold=threshold, ineq='>', op1=1)
 
         if self.temp_control_type == 'Current':
-            total = float(new_table[['ROOM_TEMP']].count())
+            total = float(new_table[['Room_Temperature']].count())
         else:
             total = float(roomTemp.count())
         if self.temp_control_type == 'Current':
-             count = float(new_table[['ROOM_TEMP']].where(new_table[['ROOM_TEMP']] - stpt > threshold).count())
+             count = float(new_table[['Room_Temperature']].where(new_table[['Room_Temperature']] - stpt > threshold).count())
         else:
-             count = float(roomTemp.where(roomTemp[['ROOM_TEMP']] - stpt[[stptName]] > threshold).count())
+             count = float(roomTemp.where(roomTemp[['Room_Temperature']] - stpt[[stptName]] > threshold).count())
         percent = (count / total) * 100
         return percent
     # End Critical Temp heat function
@@ -206,22 +304,22 @@ class VAV:
 
         ### Query ###
         if self.temp_control_type == 'Dual':
-            stptName = 'COOL_STPT'
+            stptName = 'Cool_Set_Point'
         elif self.temp_control_type == 'Single':
-            stptName = 'STPT'
+            stptName = 'Set_Point'
         elif self.temp_control_type == 'Current':
-            stptName = 'CTL_STPT'
+            stptName = 'Set_Point'
         
         if useOptions:
             if self.temp_control_type == 'Current':
-                table = self._query_data('HEAT.COOL', useOptions=True)
-            roomTemp = self._query_data('ROOM_TEMP', useOptions=True)
-            stpt = self._query_data(stptName, useOptions=True)
+                table = query_data(self.getsensor('Heat_Cool'), useOptions=True)
+            roomTemp = query_data(self.getsensor('Room_Temperature'), useOptions=True)
+            stpt = query_data(self.getsensor(stptName), useOptions=True)
         else:
             if self.temp_control_type == 'Current':
-                table = self._query_data('HEAT.COOL', date_start, date_end, interpolation_time)
-            roomTemp = self._query_data('ROOM_TEMP', date_start, date_end, interpolation_time)
-            stpt = self._query_data(stptName, date_start, date_end, interpolation_time)
+                table = query_data(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
+            roomTemp = query_data(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
+            stpt = query_data(self.getsensor(stptName), date_start, date_end, interpolation_time)
         if self.temp_control_type == 'Current' and table is None:
             return None
         if stpt is None:
@@ -233,19 +331,19 @@ class VAV:
         if self.temp_control_type == 'Current':
             stpt = int(stpt.max())
             new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
-            new_table = new_table.where(new_table[['HEAT.COOL']] == 0, new_table).fillna(new_table[['ROOM_TEMP']].mean())
+            new_table = new_table.where(new_table[['Heat_Cool']] == 0, new_table).fillna(new_table[['Room_Temperature']].mean())
         
         ### Output ###
         if self.temp_control_type == 'Current':
             if getAll:
-                return self._getCriticalTable(new_table, colName1='ROOM_TEMP', second=stpt, threshold=threshold, ineq='>', op1=2)
-            total = float(new_table[['ROOM_TEMP']].count())
-            count = float(new_table[['ROOM_TEMP']].where(stpt - new_table[['ROOM_TEMP']] > threshold).count())
+                return self._getCriticalTable(new_table, colName1='Room_Temperature', second=stpt, threshold=threshold, ineq='>', op1=2)
+            total = float(new_table[['Room_Temperature']].count())
+            count = float(new_table[['Room_Temperature']].where(stpt - new_table[['Room_Temperature']] > threshold).count())
         else:
             if getAll:
-                return self._getCriticalTable(stpt, colName1=stptName, second=roomTemp, colName2='ROOM_TEMP', threshold=threshold, ineq='>', op1=1)
+                return self._getCriticalTable(stpt, colName1=stptName, second=roomTemp, colName2='Room_Temperature', threshold=threshold, ineq='>', op1=1)
             total = float(roomTemp.count())
-            count = float(roomTemp.where(stpt[[stptName]] - roomTemp[['ROOM_TEMP']] > threshold).count())
+            count = float(roomTemp.where(stpt[[stptName]] - roomTemp[['Room_Temperature']] > threshold).count())
 
         percent = (count / total) * 100
         return percent
@@ -321,34 +419,27 @@ class VAV:
     def calcThermLoad(self, start_date=None, end_date=None, \
                       interpolation_time='5min', limit=1000, avgVals=False, \
                       sumVals=False, rawVals=False, testInput=False, inputFrames=None, useOptions=False):
-        ##global flowTemprGlobal
-        ##global roomTemprGlobal
-        ##global airFlowGlobal
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
 
-        if testInput:
-            temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
-            roomTemprStrDt  = getCSVFrame('roomTemprTest.csv')
-            volAirFlowStrDt = getCSVFrame('volAirFlowTest.csv')
-        elif inputFrames:
-            if inputFrames['Flow Temperature'] is None or \
-               inputFrames['Room Temperature'] is None or \
-               inputFrames['Flow Rate'] is None:
+        if inputFrames:
+            if inputFrames['Flow_Temperature'] is None or \
+               inputFrames['Room_Temperature'] is None or \
+               inputFrames['Flow_Rate'] is None:
                 return None
-            temprFlowStrDt = inputFrames['Flow Temperature'].copy()
-            roomTemprStrDt = inputFrames['Room Temperature'].copy()
-            volAirFlowStrDt = inputFrames['Flow Rate'].copy()
+            temprFlowStrDt = inputFrames['Flow_Temperature'].copy()
+            roomTemprStrDt = inputFrames['Room_Temperature'].copy()
+            volAirFlowStrDt = inputFrames['Flow_Rate'].copy()
         else:
             if useOptions:
-                temprFlowStrDt  = self._query_data('AI_3', useOptions=True)
-                roomTemprStrDt  = self._query_data('ROOM_TEMP', useOptions=True)
-                volAirFlowStrDt = self._query_data('AIR_VOLUME', useOptions=True)
+                temprFlowStrDt  = query_data(self.getsensor('Flow_Temperature'), useOptions=True)
+                roomTemprStrDt  = query_data(self.getsensor('Room_Temperature'), useOptions=True)
+                volAirFlowStrDt = query_data(self.getsensor('Flow_Rate'), useOptions=True)
             else:
-                temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-                roomTemprStrDt  = self._query_data('ROOM_TEMP', start_date, end_date, interpolation_time, limit=limit)
-                volAirFlowStrDt = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+                temprFlowStrDt  = query_data(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+                roomTemprStrDt  = query_data(self.getsensor('Room_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+                volAirFlowStrDt = query_data(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
 
         temprFlowStrDt.columns  = ['temprFlow']
         roomTemprStrDt.columns  = ['roomTempr']
@@ -400,23 +491,23 @@ class VAV:
             sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
             vlvPosStrDt = getCSVFrame('vlvPosTest.csv')
         elif inputFrames:
-            if inputFrames['Flow Temperature'] is None or \
-               inputFrames['Source Temperature'] is None or \
-               inputFrames['Valve Position'] is None:
+            if inputFrames['Flow_Temperature'] is None or \
+               inputFrames['Source_Temperature'] is None or \
+               inputFrames['Valve_Position'] is None:
                 return None
-            temprFlowStrDt = inputFrames['Flow Temperature'].copy()
-            sourceTemprStrDt = inputFrames['Source Temperature'].copy()
-            vlvPosStrDt = inputFrames['Valve Position'].copy()
+            temprFlowStrDt = inputFrames['Flow_Temperature'].copy()
+            sourceTemprStrDt = inputFrames['Source_Temperature'].copy()
+            vlvPosStrDt = inputFrames['Valve_Position'].copy()
         else:
             assert type(ahu) is AHU
             if useOptions:
-                temprFlowStrDt  = self._query_data('AI_3', useOptions=True)
-                sourceTemprStrDt  = self._query_data(None, externalID=ahu.uuidSAT, useOptions=True)
-                vlvPosStrDt = self._query_data('VLV_POS',  useOptions=True)
+                temprFlowStrDt  = query_data(self.getsensor('Flow_Temperature'), useOptions=True)
+                sourceTemprStrDt  = query_data(None, externalID=ahu.uuidSAT, useOptions=True)
+                vlvPosStrDt = query_data(self.getsensor('Valve_Position'),  useOptions=True)
             else:
-                temprFlowStrDt  = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-                sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit, externalID=ahu.uuidSAT)
-                vlvPosStrDt = self._query_data('VLV_POS',  start_date, end_date, interpolation_time, limit=limit)
+                temprFlowStrDt  = query_data(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+                sourceTemprStrDt  = query_data(None, start_date, end_date, interpolation_time, limit=limit, externalID=ahu.uuidSAT)
+                vlvPosStrDt = query_data(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
 
 
         temprFlowStrDt.columns = ['temprFlow']
@@ -457,27 +548,27 @@ class VAV:
             vlvPosStrDt       = getCSVFrame('vlvPosTest.csv')
             volAirFlowStrDt   = getCSVFrame('volAirFlowTest.csv')
         elif inputFrames:
-                if inputFrames['Flow Temperature'] is None or \
-                   inputFrames['Source Temperature'] is None or \
-                   inputFrames['Valve Position'] is None or \
-                   inputFrames['Flow Rate'] is None:
+                if inputFrames['Flow_Temperature'] is None or \
+                   inputFrames['Source_Temperature'] is None or \
+                   inputFrames['Valve_Position'] is None or \
+                   inputFrames['Flow_Rate'] is None:
                     return None
-                temprFlowStrDt = inputFrames['Flow Temperature'].copy()
-                sourceTemprStrDt = inputFrames['Source Temperature'].copy()
-                vlvPosStrDt = inputFrames['Valve Position'].copy()
-                volAirFlowStrDt = inputFrames['Flow Rate'].copy()
+                temprFlowStrDt = inputFrames['Flow_Temperature'].copy()
+                sourceTemprStrDt = inputFrames['Source_Temperature'].copy()
+                vlvPosStrDt = inputFrames['Valve_Position'].copy()
+                volAirFlowStrDt = inputFrames['Flow_Rate'].copy()
         else:
             assert type(ahu) is AHU and delta is not None
             if useOptions:
-                temprFlowStrDt    = self._query_data('AI_3', useOptions=True)
-                sourceTemprStrDt  = self._query_data(None, externalID=ahu.uuidSAT, useOptions=True)
-                vlvPosStrDt       = self._query_data('VLV_POS', useOptions=True)
-                volAirFlowStrDt   = self._query_data('AIR_VOLUME', useOptions=True)
+                temprFlowStrDt    = query_data(self.getsensor('Flow_Temperature'), useOptions=True)
+                sourceTemprStrDt  = query_data(None, externalID=ahu.uuidSAT, useOptions=True)
+                vlvPosStrDt       = query_data(self.getsensor('Valve_Position'), useOptions=True)
+                volAirFlowStrDt   = query_data(self.getsensor('Flow_Rate'), useOptions=True)
             else:
-                temprFlowStrDt    = self._query_data('AI_3', start_date, end_date, interpolation_time, limit=limit)
-                sourceTemprStrDt  = self._query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-                vlvPosStrDt       = self._query_data('VLV_POS', start_date, end_date, interpolation_time, limit=limit)
-                volAirFlowStrDt   = self._query_data('AIR_VOLUME', start_date, end_date, interpolation_time, limit=limit)
+                temprFlowStrDt    = query_data(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+                sourceTemprStrDt  = query_data(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
+                vlvPosStrDt       = query_data(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
+                volAirFlowStrDt   = query_data(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
 
 
         temprFlowStrDt.columns   = ['temprFlow']
@@ -522,7 +613,7 @@ class VAV:
 
 
 ###########################
-#BEGIN PROCESSING FUNCTION#
+#START PROCESSING FUNCTION#
 ###########################
 
 #self, ident, sensors, temp_control_type, serverAddr=None
@@ -531,25 +622,15 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
 
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
-    
-    if sensorDict is None:
-        sensorNames = {'Flow Temperature':['AI_3'],
-                       'Valve Position':['VLV_POS'],
-                       'Flow Rate':['AIR_VOLUME'],
-                       'Room Temperature':['ROOM_TEMP'],
-                       'Damper Position':['DMPR_POS'],
-                       'Heat Set Point':['HEAT_STPT'],
-                       'Cool Set Point':['COOL_STPT'],
-                       'Set Point':['STPT', 'CTL_STPT']
-                       }
-    else:
-        sensorNames = sensorDict
 
-    qVAV= VAV(None, None, None, None)
-    sourceTempr = qVAV._query_data('SOURCE_TEMP', externalID=testAHU.uuidSAT,
-                                   useOptions=True)
+    sensorNames = Options.names
 
-    frames = {'Source Temperature':sourceTempr}
+    qSensor = Sensor('Source_Temperature', testAHU.uuidSAT)
+    sourceTempr = query_data(qSensor, useOptions=True)
+    #sourceTempr = query_data(qVAV, 'Source_Temperature', externalID=testAHU.uuidSAT,
+    #                               useOptions=True)
+
+    frames = {'Source_Temperature':sourceTempr}
     
     if VAV_Name is None:
         retDict = {'VAV':[], 'Thermal Load':[],'Delta T':[],
@@ -560,13 +641,18 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
         print "VAV count: " + str(len(VAVs))
         for thisVAV in VAVs:
             print "Processing " + thisVAV.ID
-            frames = {'Source Temperature':sourceTempr}
+            frames = {'Source_Temperature':sourceTempr}
             
+            #for key in sensorNames:
+            #    shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
+            #    if shared:
+            #        frames[key] = query_data(thisVAV, shared[0],
+            #                                          useOptions=True)
+            #    else:
+            #        frames[key] = None
             for key in sensorNames:
-                shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
-                if shared:
-                    frames[key] = thisVAV._query_data(shared[0],
-                                                      useOptions=True)
+                if thisVAV.sensors.get(key) is not None:
+                    frames[key] = query_data(thisVAV.sensors[key], useOptions=True)
                 else:
                     frames[key] = None
             print "Calculating Thermal Load..."
@@ -604,10 +690,16 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
     else:
         thisVAV = VAV(VAV_Name, data[VAV_Name],
                       Options.data['tempcontroltype'], servAddr)
+        
+        #for key in sensorNames:
+        #    shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
+        #    if shared:
+        #        frames[key] = query_data(thisVAV, shared[0], useOptions=True)
+        #    else:
+        #        frames[key] = None
         for key in sensorNames:
-            shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
-            if shared:
-                frames[key] = thisVAV._query_data(shared[0], useOptions=True)
+            if thisVAV.sensors.get(key) is not None:
+                frames[key] = query_data(thisVAV.sensors[key], useOptions=True)
             else:
                 frames[key] = None
 
@@ -632,10 +724,10 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
         print "Finding Critical Pressure..."
         criticalPress = thisVAV.find_critical('pressure', getAll=True, useOptions=True)
 
-        def renamecol(frame, newName):
-            if type(frame) is pd.DataFrame:
-                frame.columns = [newName]
-            return frame
+#        def renamecol(frame, newName):
+#            if type(frame) is pd.DataFrame:
+#                frame.columns = [newName]
+#            return frame
 
         def mergerwrapper(a, b):
             if a is not None and b is not None:
@@ -677,82 +769,8 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
 #########################
 
 
-###########################
-#START INPUT PREPROCESSING#
-###########################
-
-
-# Credit for this subclass goes to
-# http://prosseek.blogspot.com/2012/10/reading-ini-file-into-dictionary-in.html
-# (Not currently used)
-#class ConfigToDict(ConfigParser):
-#    def dictionarify(self):
-#        d = dict(self._sections)
-#        for k in d:
-#            d[k] = dict(self._defaults, **d[k])
-#            d[k].pop('__name__', None)
-#        return d
-
-
-# Switched over to this during debugging.
-def config_to_dict(cParser):
-    cDict = {}
-    for section in cParser.sections():
-        cDict[section] = {}
-        for (key, value) in cParser.items(section):
-            cDict[section][key] = value
-    return cDict
-            
-        
-
-
-def readconfig(configFileName):
-    cp = ConfigParser()
-    print configFileName
-    cp.read(configFileName)
-    configDict = config_to_dict(cp)
-    for key in configDict:
-        subDict = configDict[key]
-        for key2 in subDict:
-            operItm = subDict[key2]
-            if operItm == 'None' or operItm == 'True' or operItm == 'False':
-                subDict[key2] = eval(operItm)
-            elif operItm == 'All':
-                subDict[key2] = ALL
-            elif len(operItm) > 0 and operItm[0] == '\\':
-                subDict[key2] = operItm[1:]
-    return configDict
-    
-    
-def readinput():
-    if len(sys.argv) == 1:
-        configFileName = raw_input("Please input config file name ==> ")
-    elif len(sys.argv) == 2:
-        configFileName = sys.argv[1]
-    else:
-        sys.stderr.write("ERROR: Incorrect number of arguments provided...!\n"
-                         "Should be:\n"
-                         "python " + sys.argv[0] + " config_file_name\n")
-        sys.stderr.flush()
-        sys.exit(1)
-
-    return configFileName
-
-
-#########################
-#END INPUT PREPROCESSING#
-#########################
-
-
 def main():
     Options.load()
-    #configFileName = readinput()
-    #cDict = readconfig(configFileName)
-    #queryInfo = cDict['Query']
-    #fileInfo = cDict['IO_Files']
-    #outOptions = cDict['Output_Options']
-    #dataAttr = cDict['Data_Attributes']
-    #Options.assign(queryInfo, fileInfo, outOptions, dataAttr)
 
     if Options.files['metadatajson'] is None:
         qStr = 'select ' + Options.query['select'] + ' where ' + Options.query['where']
@@ -763,12 +781,15 @@ def main():
             data = json.load(data_file)
         data_file.close()
 
+    for key in data:
+        data[key] = rename_sensors(data[key])
+    
     if Options.files['outputjson'] is not None:
         VavDataReader.dictToJson(data, Options.files['outputjson'])
 
     if Options.files['outputcsv'] is not None or Options.output['printtoscreen']:
         print "Preprocessing finished. Processing now."
-        if Options.output['vav'] is ALL:
+        if Options.output['vav'] is None:
             processed = processdata(data, Options.query['client'])
         else:
             processed = processdata(data, Options.query['client'], Options.output['vav'])
@@ -793,6 +814,6 @@ def main():
 
     print 'Done.'
 
-ALL = '_A_////_L_////_L_'
+
 
 main()

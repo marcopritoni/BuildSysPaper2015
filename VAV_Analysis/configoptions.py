@@ -1,5 +1,7 @@
 import sys
+import json
 from ConfigParser import ConfigParser
+
 
 class Options:
     @staticmethod
@@ -10,6 +12,22 @@ class Options:
         Options.files = cDict['IO_Files']
         Options.output = cDict['Output_Options']
         Options.data = cDict['Data_Attributes']
+
+        if Options.data.get('namesjson') is not None:
+            with open(Options.data['namesjson']) as f:
+                Options.names = json.load(f)
+            f.close()
+        else:
+            Options.names = {'Flow_Temperature':['AI_3'],
+                             'Valve_Position':['VLV_POS'],
+                             'Flow_Rate':['AIR_VOLUME'],
+                             'Room_Temperature':['ROOM_TEMP'],
+                             'Damper_Position':['DMPR_POS'],
+                             'Heat_Set_Point':['HEAT_STPT'],
+                             'Cool_Set_Point':['COOL_STPT'],
+                             'Set_Point':['STPT', 'CTL_STPT'],
+                             'Heat_Cool':['HEAT.COOL']}
+        Options._reverse_names()
 
     @staticmethod
     def _config_to_dict(cParser):
@@ -33,7 +51,7 @@ class Options:
                 if operItm == 'None' or operItm == 'True' or operItm == 'False':
                     subDict[key2] = eval(operItm)
                 elif operItm == 'All':
-                    subDict[key2] = ALL
+                    subDict[key2] = None
                 elif len(operItm) > 0 and operItm[0] == '\\':
                     subDict[key2] = operItm[1:]
         return configDict
@@ -52,3 +70,13 @@ class Options:
             sys.exit(1)
 
         return configFileName
+
+    @staticmethod
+    def _reverse_names():
+        revNames = {}
+        for key in Options.names:
+            for e in Options.names[key]:
+                # print "revNames['" + e + "'] = '" + key + "'"
+                revNames[e] = key
+
+        Options.rNames = revNames
