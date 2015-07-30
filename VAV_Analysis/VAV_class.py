@@ -13,16 +13,13 @@ import copy
 from configoptions import Options
 
 
+'''Each instance of this class represents a single sensor.'''
 class Sensor:
-    # self.sType
-    # self.uuid
-    # self.owner
-
     def __init__(self, sensorType=None, sensorUUID=None, sensorOwner=None):
-        # assert sensorType in Options.names.keys()
-        self.sType = sensorType
-        self.uuid = sensorUUID
-        self.owner = sensorOwner
+        self.sType = sensorType # Type of sensor
+        self.uuid = sensorUUID # uuid of sensor time-series
+        self.owner = sensorOwner # reference to the VAV, AHU, or other object
+                                 # that owns this sensor.
 
 
 #######################
@@ -30,7 +27,7 @@ class Sensor:
 #######################
 
 '''Renames keys in sd to standard names specified.
-   dict is returned which is copy of sd with renamed keys'''
+   dict is returned which is copy of sd except with renamed keys'''
 def rename_sensors(sd):
     sDict = copy.deepcopy(sd)
     repCounts = {}
@@ -57,7 +54,11 @@ def rename_sensors(sd):
 # If externalID is given a uuid value, it will query by that ID rather than the one specified by
 # sensor_name.
 
-
+'''Queries stream data from the given sensorObj (or uuid externalID if
+   specified. Setting useOptions to True will use query options (such as start
+   and end times for the stream data) from the global class Options. Options
+   can also be called as arguments (but this will likely be phased out in favor
+   of the options class).'''
 def query_data(sensorObj, start_date='4/1/2015',
                end_date='4/2/2015', interpolation_time='5min', limit=-1,
                externalID=None, useOptions=False):
@@ -97,6 +98,7 @@ def query_data(sensorObj, start_date='4/1/2015',
     return data_table
 
 
+'''Will probably be removed.'''
 def query_data_old(VAV_Obj, sensor_name, start_date='4/1/2015',
                end_date='4/2/2015', interpolation_time='5min', limit=-1,
                externalID=None, useOptions=False):
@@ -136,8 +138,8 @@ def query_data_old(VAV_Obj, sensor_name, start_date='4/1/2015',
 # Represents a given AHU
 class AHU:
     def __init__(self, SAT_ID, SetPt_ID):
-        self.uuidSAT = SAT_ID
-        self.uuidSetPt = SetPt_ID
+        self.uuidSAT = SAT_ID # UUID of the source air temperature time-series
+        self.uuidSetPt = SetPt_ID # UUID of the source set-point time-series.
     
 
 # Begin VAV class definition
@@ -145,20 +147,24 @@ class AHU:
 
 class VAV:
     def __init__(self, ident, sensors, temp_control_type, serverAddr=None):
-        self.ID = ident
+        self.ID = ident # The ID of this VAV
         self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
-        self._make_sensor_objs()
+        self._make_sensor_objs() # convert self.sensors, as it was read in, to a dict of sensor objects.
         self.temp_control_type = temp_control_type # The type of set point data available for this VAV box
         if serverAddr is None:
-            self.serverAddr = "http://new.openbms.org/backend"
+            self.serverAddr = "http://new.openbms.org/backend" # Address of the server which contains data for this VAV.
         else:
             self.serverAddr = serverAddr
 
-
+    '''Converts dict of sensor data to dict of sensor objects'''
     def _make_sensor_objs(self):
         for key in self.sensors:
             self.sensors[key] = Sensor(key, self.sensors[key][0], self)
 
+    '''Wrapper function for the sensors attribute. Returns empty sensor if
+       sensor of type sType not found. Returns actual sensor otherwise.
+       This is for the query function, so that it can still print the name of
+       the missing sensor.'''
     def getsensor(self, sType):
         x = self.sensors.get(sType)
         if x is None:
@@ -170,7 +176,9 @@ class VAV:
     ########################
     #START CRITICAL METHODS#
     ########################
-
+    '''Generates a table of 0 and 1 values, alongside datetimes. Used to
+       give in-depth data on critical values, rather than just a percentage.
+       1's represent critical values, and 0's represent non-critical values.'''
     def _getCriticalTable(self, firstFrame, colName1='Damper_Position', colName2=None, second=None, threshold=5, ineq='>=', op1=1):
         combined = False
         if type(second) is pd.DataFrame:
@@ -205,8 +213,10 @@ class VAV:
         return outFrame
         
 
-    # Start critical pressure function
-    # Returns the percentage of damper positions that are far outside the expected and desired norm.
+    '''Start critical pressure function
+       Returns the percentage of damper positions that are far outside the
+       expected and desired norm. Setting getAll as True will return an
+       in-depth table instead (see _getCriticalTable for more information).'''
     def _find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
                              interpolation_time='5min', threshold=95, getAll=False, inputFrame=None, useOptions=False):
         if threshold is None and not useOptions:
@@ -627,8 +637,6 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
 
     qSensor = Sensor('Source_Temperature', testAHU.uuidSAT)
     sourceTempr = query_data(qSensor, useOptions=True)
-    #sourceTempr = query_data(qVAV, 'Source_Temperature', externalID=testAHU.uuidSAT,
-    #                               useOptions=True)
 
     frames = {'Source_Temperature':sourceTempr}
     
@@ -815,5 +823,5 @@ def main():
     print 'Done.'
 
 
-
-main()
+if __name__ == '__main__':
+    main()
