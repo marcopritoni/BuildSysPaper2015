@@ -83,7 +83,7 @@ class VAV:
                 .groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='time').dropna()
             return df
         else:
-            return query_data(sensorObj, start_date, end_date, interpolation_time, limit, useOptions, externalID)
+            return query_data(sensorObj, start_date, end_date, interpolation_time, limit, externalID, useOptions)
                    
     '''Converts dict of sensor data to dict of sensor objects'''
     def _make_sensor_objs(self):
