@@ -81,6 +81,7 @@ class VAV:
             df = pd.read_csv(str(sensorObj.uuid), index_col=0)
             df.index = pd.to_datetime(df.index.tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')\
                 .groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='time').dropna()
+            print df
             return df
         else:
             return query_data(sensorObj, start_date, end_date, interpolation_time, limit, externalID, useOptions)
