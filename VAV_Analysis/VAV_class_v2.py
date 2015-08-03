@@ -12,6 +12,7 @@ import sys
 import VavDataReader
 import csv
 import copy
+import os.path
 from configoptions import Options
 from Query_data import query_data
 
@@ -70,9 +71,19 @@ class VAV:
         else:
             self.serverAddr = serverAddr
 
-
     def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min', limit=-1, externalID=None, useOptions=False):
-        return query_data(sensorObj, start_date, end_date, interpolation_time, limit, externalID, useOptions)
+        if useOptions:
+            start_date = Options.data['starttime']
+            end_date = Options.data['endtime']
+            interpolation_time = Options.data['interpolationtime']
+            limit = eval(Options.data['limit'])
+        if os.path.isfile('/Data/' + str(sensorObj.uuid)):
+            df = pd.read_csv(str(sensorObj.uuid), index_col=0)
+            df.index = pd.to_datetime(df.index.tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')\
+                .groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='time').dropna()
+            return df
+        else:
+            return query_data(sensorObj, start_date, end_date, interpolation_time, limit, useOptions, externalID)
                    
     '''Converts dict of sensor data to dict of sensor objects'''
     def _make_sensor_objs(self):

@@ -61,14 +61,10 @@ def rename_sensors(sd):
    and end times for the stream data) from the global class Options. Options
    can also be called as arguments (but this will likely be phased out in favor
    of the options class).'''
-def query_data(sensorObj, start_date='4/1/2015',
-               end_date='4/2/2015', interpolation_time='5min', limit=-1,
-               externalID=None, useOptions=False):
+def query_data(sensorObj, start_date,
+               end_date, interpolation_time, limit,
+                useOptions, externalID=None):
     if useOptions:
-        start_date = Options.data['starttime']
-        end_date = Options.data['endtime']
-        interpolation_time = Options.data['interpolationtime']
-        limit = eval(Options.data['limit'])
         serverAddr = Options.query['client']
     else:
         serverAddr = sensorObj.owner.serverAddr       
