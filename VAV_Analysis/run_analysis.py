@@ -18,6 +18,8 @@ from VAV_class_v2 import AHU
 from VAV_class_v2 import Sensor
 from VAV_class_v2 import VAV
 from VAV_class_v2 import rename_sensors
+from TimeSeries_Util import build_table, append_rooms, seperate_periods
+import datetime
 
 
 
@@ -36,14 +38,20 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
 
     frames = {'Source_Temperature':sourceTempr}
     
-    if VAV_Name is None:
+    if VAV_Name is None or type(VAV_Name) is list or VAV_Name == 'All':
+        all_vav = {}
         retDict = {'VAV':[], 'Thermal Load':[],'Delta T':[],
                    'Critical Heat':[], 'Critical Cool':[], 'Critical Pressure':[],
                    'Reheat':[]}
-        VAVs = [VAV(key, data[key], Options.data['tempcontroltype'],
+        if VAV_Name == 'All' or VAV_Name == None:
+            VAVs = [VAV(key, data[key], Options.data['tempcontroltype'],
                     servAddr) for key in data]
+        else:
+            VAVs = [VAV(key, data[key], Options.data['tempcontroltype'],
+                    servAddr) for key in VAV_Name]
         print "VAV count: " + str(len(VAVs))
         for thisVAV in VAVs:
+            t = []
             print "Processing " + thisVAV.ID
             frames = {'Source_Temperature':sourceTempr}
             
@@ -57,8 +65,11 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
             for key in sensorNames:
                 if thisVAV.sensors.get(key) is not None:
                     frames[key] = query_data(thisVAV.sensors[key], useOptions=True)
+                    t.append(frames[key])
                 else:
                     frames[key] = None
+            all_sensors_table = build_table(t)
+            all_vav[thisVAV.ID] = all_sensors_table
             print "Calculating Thermal Load..."
             tl = thisVAV.calcThermLoad(inputFrames=frames, avgVals=True,
                                        useOptions=True)
@@ -88,12 +99,23 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
             retDict['Critical Pressure'].append(criticalPress)
             retDict['VAV'].append(thisVAV.ID)
             print thisVAV.ID + " complete.\n"
+        append_rooms(all_vav).to_csv('for_viewing.csv')
         return pd.DataFrame(retDict)
             
                 
     else:
+        t = []
         thisVAV = VAV(VAV_Name, data[VAV_Name],
                       Options.data['tempcontroltype'], servAddr)
+        for key, val in thisVAV.sensors.iteritems():
+            t.append(thisVAV.getData(val, useOptions=True))
+        all_sensors = build_table(t)
+        seperate_periods(all_sensors,[[(datetime.datetime(2015, 6, 1, 11, 0, 0), datetime.datetime(2015, 6, 6, 10, 00, 00)),
+            (datetime.datetime(2015, 6, 8, 11, 0, 0), datetime.datetime(2015, 6, 13, 10, 00, 00)),
+            (datetime.datetime(2015, 6, 15, 11, 0, 0), datetime.datetime(2015, 6, 20, 10, 00, 00)),
+            (datetime.datetime(2015, 6, 22, 11, 0, 0), datetime.datetime(2015, 6, 27, 10, 00, 00)),
+            (datetime.datetime(2015, 6, 29, 11, 0, 0), datetime.datetime(2015, 7, 4, 10, 00, 00)),
+            (datetime.datetime(2015, 7, 10, 11, 0, 0), datetime.datetime(2015, 7, 11, 10, 00, 00))]])
         
         #for key in sensorNames:
         #    shared = list(set(thisVAV.sensors) & set(sensorNames[key]))

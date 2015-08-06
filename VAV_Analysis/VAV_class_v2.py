@@ -77,7 +77,6 @@ class VAV:
             end_date = Options.data['endtime']
             interpolation_time = Options.data['interpolationtime']
             limit = eval(Options.data['limit'])
-        print 'sensor id = ' + str(sensorObj.uuid)
         if os.path.isfile('Data/' + str(sensorObj.uuid)):
             print 'file detected'
             df = pd.read_csv('Data/' + sensorObj.uuid, index_col=0)
@@ -86,36 +85,7 @@ class VAV:
             df.columns = [sensorObj.sType]
             return df
         else:
-            print 'file not detected'
             return query_data(sensorObj, start_date, end_date, interpolation_time, limit, externalID, useOptions)
-
-    def build_table(self, *args):
-        # need to change naming convention of columns for each sensor, to append them and not have same name cols
-        table = pd.DataFrame()
-        for subtable in args:
-            table.append(subtable)
-        print table
-        return table
-
-    def append_rooms(self, **args):
-        # argument must be dictionary with key being the name of the room, and the value being the dataframe
-        bigtable = pd.DataFrame()
-        for room, table in args:
-            table = table.reset_index()
-            table['Room'] = room
-            bigtable.append(table)
-        bigtable.set_index(['Room', 'Time'], inplace=True)
-        return bigtable
-
-
-
-    def seperate_periods(self,datatable, **args):
-        for name, daterange in args:
-            print name
-            print daterange[0]
-            print daterange[1]
-            datatable.ix[daterange[0]:daterange[1]]
-
 
                    
     '''Converts dict of sensor data to dict of sensor objects'''

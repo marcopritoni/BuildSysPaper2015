@@ -51,9 +51,11 @@ class Options:
                 if operItm == 'None' or operItm == 'True' or operItm == 'False':
                     subDict[key2] = eval(operItm)
                 elif operItm == 'All':
-                    subDict[key2] = None
+                    subDict[key2] = operItm
                 elif len(operItm) > 0 and operItm[0] == '\\':
                     subDict[key2] = operItm[1:]
+                elif operItm[0] == '[' and operItm[-1] == ']':
+                    subDict[key2] = [x.strip() for x in operItm[1:-1].split(',')]
         return configDict
 
     @staticmethod
