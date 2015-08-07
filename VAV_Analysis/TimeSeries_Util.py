@@ -20,8 +20,7 @@ def append_rooms(dict):
     return bigtable
 
 def seperate_periods(datatable, dates):
-    rt = []
+    rt = pd.DataFrame()
     for start, end in dates:
-        print start
-        print end
+        rt = rt.append(datatable[start:end])
     return rt

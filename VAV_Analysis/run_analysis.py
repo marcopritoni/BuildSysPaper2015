@@ -105,17 +105,9 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
                 
     else:
         t = []
+        count = 0
         thisVAV = VAV(VAV_Name, data[VAV_Name],
                       Options.data['tempcontroltype'], servAddr)
-        for key, val in thisVAV.sensors.iteritems():
-            t.append(thisVAV.getData(val, useOptions=True))
-        all_sensors = build_table(t)
-        seperate_periods(all_sensors,[[(datetime.datetime(2015, 6, 1, 11, 0, 0), datetime.datetime(2015, 6, 6, 10, 00, 00)),
-            (datetime.datetime(2015, 6, 8, 11, 0, 0), datetime.datetime(2015, 6, 13, 10, 00, 00)),
-            (datetime.datetime(2015, 6, 15, 11, 0, 0), datetime.datetime(2015, 6, 20, 10, 00, 00)),
-            (datetime.datetime(2015, 6, 22, 11, 0, 0), datetime.datetime(2015, 6, 27, 10, 00, 00)),
-            (datetime.datetime(2015, 6, 29, 11, 0, 0), datetime.datetime(2015, 7, 4, 10, 00, 00)),
-            (datetime.datetime(2015, 7, 10, 11, 0, 0), datetime.datetime(2015, 7, 11, 10, 00, 00))]])
         
         #for key in sensorNames:
         #    shared = list(set(thisVAV.sensors) & set(sensorNames[key]))
@@ -126,9 +118,13 @@ def processdata(data, servAddr, VAV_Name=None, sensorDict=None):
         for key in sensorNames:
             if thisVAV.sensors.get(key) is not None:
                 frames[key] = query_data(thisVAV.sensors[key], useOptions=True)
+                t.append(frames[key])
             else:
                 frames[key] = None
+        all_sensors = build_table(t)
 
+        seperate_periods(all_sensors,
+                         [(datetime.datetime(2015, 4, 1, 0, 0, 0), datetime.datetime(2015, 4, 1, 1, 0, 0))])
         print "Calculating Thermal Load..."
         tl = thisVAV.calcThermLoad(inputFrames=frames, avgVals=True,
                                    rawVals=True, useOptions=True)
