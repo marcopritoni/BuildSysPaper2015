@@ -67,8 +67,7 @@ def query_data(sensorObj, start_date='4/1/2015',
     if useOptions:
         serverAddr = Options.query['client']
     else:
-        serverAddr = sensorObj.owner.serverAddr       
-
+        serverAddr = sensorObj.owner.serverAddr
     client_obj = SmapClient(serverAddr)
     if (sensorObj is None or sensorObj.uuid is None) and externalID is None:
         if sensorObj is None:
@@ -82,13 +81,9 @@ def query_data(sensorObj, start_date='4/1/2015',
     else:
         sensorID = externalID
     if start_date is None and end_date is None:
-        #print 'select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
-        # x = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\'')
         q = client_obj.query('select data before now limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
     else:
-        #print 'select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + self.sensors.get(sensor_name)[0] + '\''
         q = client_obj.query('select data in (\'' + start_date + '\', \'' + end_date + '\') limit ' + str(limit) + ' where uuid = \'' + sensorID + '\'')
-
     data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensorObj.sType])
     data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
     data_table.set_index('Time', inplace=True)

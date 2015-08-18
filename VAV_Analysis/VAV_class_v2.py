@@ -15,6 +15,9 @@ import copy
 import os.path
 from configoptions import Options
 from Query_data import query_data
+from datetime import datetime
+from TimeSeries_Util import build_table, append_rooms, seperate_periods
+
 
 '''Each instance of this class represents a single sensor.'''
 class Sensor:
@@ -91,7 +94,7 @@ class VAV:
     '''Converts dict of sensor data to dict of sensor objects'''
     def _make_sensor_objs(self):
         for key in self.sensors:
-            self.sensors[key] = Sensor(key, self.sensors[key][0], self)
+            self.sensors[key] = Sensor(key, self.sensors[key], self)
 
     '''Wrapper function for the sensors attribute. Returns empty sensor if
        sensor of type sType not found. Returns actual sensor otherwise.
@@ -158,13 +161,20 @@ class VAV:
             table = self.getData(self.getsensor('Damper_Position'), useOptions=True)
         else:
             table = self.getData(self.getsensor('Damper_Position'), date_start, date_end, interpolation_time)
+
         if table is None:
             return None
+
+        table['Threshold'] = threshold
+        table['Analysis'] = table[['Damper_Position']] >= threshold
+
         if getAll:
-            return self._getCriticalTable(table, colName1='Damper_Position', colName2=None, second=None, threshold=threshold, ineq='>=', op1=1)      
+            return table
+
         total = float(table.count())
-        count = float(table.where(table[['Damper_Position']] >= threshold).count())
+        count = float(table[table['Analysis'] == True].count())
         percent = (count / total) * 100
+
         return percent
     # End critical pressure function
 
@@ -181,55 +191,33 @@ class VAV:
         elif useOptions:
             threshold = eval(Options.data['heat_threshold'])
 
-        ### Query ###
-        if self.temp_control_type == 'Dual':
-            stptName = 'Heat_Set_Point'
-        elif self.temp_control_type == 'Single':
-            stptName = 'Set_Point'
-        elif self.temp_control_type == 'Current':
-            stptName = 'Set_Point'
-        if useOptions:
-            if self.temp_control_type == 'Current':
-                table = self.getData(self.getsensor('Heat_Cool'), useOptions=True)
-            roomTemp = self.getData(self.getsensor('Room_Temperature'), useOptions=True)
-            stpt = self.getData(self.getsensor(stptName), useOptions=True)
-        else:
-            if self.temp_control_type == 'Current':
-                table = self.getData(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
-            roomTemp = self.getData(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
-            stpt = self.getData(self.getsensor('Set_Point'), date_start, date_end, interpolation_time)
-        if self.temp_control_type == 'Current' and table is None:
-            return None
-        if stpt is None:
-            return None
-        if roomTemp is None:
-            return None
-        
-        ### Modify ###
-        if self.temp_control_type == 'Dual':
-            stpt = stpt + threshold
-        elif self.temp_control_type == 'Current':
-            stpt = int(stpt.min())
-            new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
-            new_table = new_table.where(new_table[['Heat_Cool']] == 1, new_table).fillna(new_table[['Room_Temperature']].mean())
-
-        ### Output ###
+        table = self._get_stpt(date_start, date_end, interpolation_time, 1)
+        var = table['Heat_Setpoint'] - table['Room_Temperature']
+        table['Temp_Heat_Analysis'] = var > threshold
         if getAll:
-            if self.temp_control_type == 'Current':
-                return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=None, threshold=threshold, ineq='>', op1=1)
-            else:
-                return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=stptName, threshold=threshold, ineq='>', op1=1)
-
-        if self.temp_control_type == 'Current':
-            total = float(new_table[['Room_Temperature']].count())
+            return table
         else:
-            total = float(roomTemp.count())
-        if self.temp_control_type == 'Current':
-             count = float(new_table[['Room_Temperature']].where(new_table[['Room_Temperature']] - stpt > threshold).count())
-        else:
-             count = float(roomTemp.where(roomTemp[['Room_Temperature']] - stpt[[stptName]] > threshold).count())
-        percent = (count / total) * 100
-        return percent
+            total = float(table.count())
+            count = float(table[table['Temp_Heat_Analysis'] == True].count())
+            percent = (count / total) * 100
+            return percent
+        ### Output ###
+        # if getAll:
+        #     if self.temp_control_type == 'Current':
+        #         return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=None, threshold=threshold, ineq='>', op1=1)
+        #     else:
+        #         return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=stptName, threshold=threshold, ineq='>', op1=1)
+        #
+        # if self.temp_control_type == 'Current':
+        #     total = float(new_table[['Room_Temperature']].count())
+        # else:
+        #     total = float(roomTemp.count())
+        # if self.temp_control_type == 'Current':
+        #      count = float(new_table[['Room_Temperature']].where(new_table[['Room_Temperature']] - stpt > threshold).count())
+        # else:
+        #      count = float(roomTemp.where(roomTemp[['Room_Temperature']] - stpt[[stptName]] > threshold).count())
+        # percent = (count / total) * 100
+        # return percent
     # End Critical Temp heat function
 
     # Start Critical Temp Cool Function
@@ -244,64 +232,25 @@ class VAV:
         elif useOptions:
             threshold = eval(Options.data['cool_threshold'])
 
-        ### Query ###
-        if self.temp_control_type == 'Dual':
-            stptName = 'Cool_Set_Point'
-        elif self.temp_control_type == 'Single':
-            stptName = 'Set_Point'
-        elif self.temp_control_type == 'Current':
-            stptName = 'Set_Point'
-        
-        if useOptions:
-            if self.temp_control_type == 'Current':
-                table = self.getData(self.getsensor('Heat_Cool'), useOptions=True)
-            roomTemp = self.getData(self.getsensor('Room_Temperature'), useOptions=True)
-            stpt = self.getData(self.getsensor(stptName), useOptions=True)
-        else:
-            if self.temp_control_type == 'Current':
-                table = self.getData(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
-            roomTemp = self.getData(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
-            stpt = self.getData(self.getsensor(stptName), date_start, date_end, interpolation_time)
-        if self.temp_control_type == 'Current' and table is None:
-            return None
-        if stpt is None:
-            return None
-        if roomTemp is None:
-            return None
-        
-        ### Modify ###
-        if self.temp_control_type == 'Current':
-            stpt = int(stpt.max())
-            new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
-            new_table = new_table.where(new_table[['Heat_Cool']] == 0, new_table).fillna(new_table[['Room_Temperature']].mean())
-        
+        table = self._get_stpt(date_start, date_end, interpolation_time, 0)
         ### Output ###
-        if self.temp_control_type == 'Current':
-            if getAll:
-                return self._getCriticalTable(new_table, colName1='Room_Temperature', second=stpt, threshold=threshold, ineq='>', op1=2)
-            total = float(new_table[['Room_Temperature']].count())
-            count = float(new_table[['Room_Temperature']].where(stpt - new_table[['Room_Temperature']] > threshold).count())
+        var = table['Cool_Setpoint'] - table['Room_Temperature']
+        table['Temp_Cool_Analysis'] = var > threshold
+        if getAll:
+            return table
         else:
-            if getAll:
-                return self._getCriticalTable(stpt, colName1=stptName, second=roomTemp, colName2='Room_Temperature', threshold=threshold, ineq='>', op1=1)
-            total = float(roomTemp.count())
-            count = float(roomTemp.where(stpt[[stptName]] - roomTemp[['Room_Temperature']] > threshold).count())
-
-        percent = (count / total) * 100
-        return percent
+            total = float(table.count())
+            count = float(table[table['Temp_Cool_Analysis'] == True].count())
+            percent = (count / total) * 100
+            return percent
     # End Critical Temp Cool Function
-
-    # Finds both heating and cooling setpoint critical temperature percentages. Returns them as a [heat percentage, cool percentage] pair.
-    def find_critical_temps(self, date_start, date_end, interpolation_time='5Min', threshold=None):#, useOptions=False):
-        heats = self._find_critical_temp_heat(date_start, date_end, interpolation_time, threshold)
-        cools = self._find_critical_temp_cool(date_start, date_end, interpolation_time, threshold)
-        return [heats, cools]
 
     # Start Find Critical
     # Finds critical pressure, heat, or cool, based on critical_type arg. Takes also query info and interpolation time,
     # which it passes to the critical helper functions above
     # getAll=True makes this return a timeseries of 0 and 1 values (1's representing critical readings)
     # inputFrame (might change this to inputFrames) makes this take in dataframes from already-queried data, rather than querying the data itself.
+
     def find_critical(self, critical_type, threshold=None, date_start='1/1/2014',
                    date_end='now', interpolation_time = '5Min', getAll=False,
                    inputFrame=None, useOptions=False):
@@ -322,6 +271,57 @@ class VAV:
                 return self._find_critical_temp_heat(date_start, date_end, interpolation_time, threshold, getAll=getAll, inputFrame=inputFrame)
         else:
             print critical_type + ' is not a valid option for critical_type'
+
+    def _get_stpt(self, date_start, date_end, interpolation_time, hcv):
+
+        if self.temp_control_type == 'Dual':
+            if hcv == 0:
+                stptName = 'Cool_Set_Point'
+            else:
+                stptName = 'Heat_Set_Point'
+        elif self.temp_control_type == 'Single':
+            stptName = 'Set_Point'
+        elif self.temp_control_type == 'Current':
+            stptName = 'Set_Point'
+
+        if self.temp_control_type == 'Current':
+            print 'begin Heat_Cool query'
+            a = datetime.now()
+            table = self.getData(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
+            b = datetime.now()
+            c = b - a
+            print c.total_seconds()
+        print 'begin Room Temp Query'
+        a = datetime.now()
+        roomTemp = self.getData(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
+        b = datetime.now()
+        c = b - a
+        print c.total_seconds()
+        print 'begin stpt query'
+        a = datetime.now()
+        stpt = self.getData(self.getsensor(stptName), date_start, date_end, interpolation_time)
+        b = datetime.now()
+        c = b - a
+        print c.total_seconds()
+        if hcv == 0:
+            stptName = 'Cool_Setpoint'
+        else:
+            stptName = 'Heat_Setpoint'
+        stpt.columns = [stptName]
+        if self.temp_control_type == 'Current' and table is None:
+            return None
+        if stpt is None or roomTemp is None:
+            return None
+
+        ### Modify ###
+        if self.temp_control_type == 'Current':
+            stpt = int(stpt.max())
+            new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
+            new_table[stptName] = stpt
+            new_table = new_table.where(new_table[['Heat_Cool']] == hcv, new_table).fillna(new_table[['Room_Temperature']].mean())
+        else:
+            new_table = roomTemp.merge(stpt, how='outer', left_index=True, right_index=True)
+        return new_table
 
     # End Find Critical
 
@@ -554,8 +554,17 @@ class VAV:
     ##################
 
 
-    
 
+if __name__ == "__main__":
+    sensors = {'Valve_Position': '3c1f8ad8-4e7c-5146-8570-f270fb07408c',
+           'Flow_Rate': 'e6ac0b13-ef94-5fbe-99ff-01b31a8a259a',
+           'CTL_FLOW_MIN':'b7336b08-7d8b-57f2-8826-62cf78a64bed',
+           'Damper_Position': '0355e7cc-54ec-5356-9557-161bc436ebc3',
+           'CTL_FLOW_MAX': '50afb9ef-2bf5-57f2-8f0a-9de974cd51ed',
+           'Heat_Cool': '682e5119-01d6-537f-8413-af0b3253c586',
+           'Set_Point': 'd37351e1-f2f3-5d8e-a79a-9c2d518752e2',
+           'Room_Temperature': '6394dea9-f31d-5cb1-8f5f-548d0b38d222',
+              }
 
-#if __name__ == '__main__':
-#    main()
+    tmp = VAV('S1-20', sensors, 'Current')
+    table = tmp.find_critical('temp_cool', getAll=True)

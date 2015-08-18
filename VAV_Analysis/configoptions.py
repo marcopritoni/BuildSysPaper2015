@@ -13,8 +13,8 @@ class Options:
         Options.output = cDict['Output_Options']
         Options.data = cDict['Data_Attributes']
 
-        if Options.data.get('namesjson') is not None:
-            with open(Options.data['namesjson']) as f:
+        if Options.files.get('namesjson') is not None:
+            with open(Options.files['namesjson']) as f:
                 Options.names = json.load(f)
             f.close()
         else:

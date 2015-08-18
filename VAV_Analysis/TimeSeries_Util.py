@@ -21,10 +21,9 @@ def append_rooms(dict):
     bigtable.set_index(['Room', 'Time'], inplace=True)
     return bigtable
 
-'''seperate_periods takes in the original datatable from which to parse, and a list of datetime tuples'''
-
 
 def seperate_periods(datatable, dates):
+    '''Seperate_periods takes in the original datatable from which to parse, and a list of datetime tuples'''
     # dates must be a list of tuples with first element being start date, second element being end date
     rt = pd.DataFrame()
     for start, end in dates:
