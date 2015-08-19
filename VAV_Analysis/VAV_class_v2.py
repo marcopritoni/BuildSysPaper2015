@@ -64,11 +64,13 @@ class AHU:
 
 
 class VAV:
-    def __init__(self, ident, sensors, temp_control_type, serverAddr=None):
+    def __init__(self, ident, sensors, temp_control_type, rho,spec_heat, serverAddr=None):
         self.ID = ident # The ID of this VAV
         self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
         self._make_sensor_objs() # convert self.sensors, as it was read in, to a dict of sensor objects.
         self.temp_control_type = temp_control_type # The type of set point data available for this VAV box
+        self.rho = rho * pq.kg/pq.m**3
+        self.specific_heat = spec_heat * pq.J/(pq.kg*pq.degC)
         if serverAddr is None:
             self.serverAddr = "http://new.openbms.org/backend" # Address of the server which contains data for this VAV.
         else:
@@ -117,7 +119,7 @@ class VAV:
        expected and desired norm. Setting getAll as True will return an
        in-depth table instead (see _getCriticalTable for more information).'''
     def find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
-                             interpolation_time='5min', threshold=95, getAll=False, inputFrame=None, useOptions=False):
+                             interpolation_time='5min', threshold=95, getAll=False, useOptions=False):
         if threshold is None and not useOptions:
             threshold = 95
         if useOptions:
@@ -145,7 +147,7 @@ class VAV:
     # Start Critical Temp heat function
     # Returns the percentage of temperatures that are beyond the heating setpoint.
     def find_critical_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015',
-                                 interpolation_time='5Min', threshold=3, getAll=False, inputFrame=None, useOptions=False):
+                                 interpolation_time='5Min', threshold=3, getAll=False, useOptions=False):
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
@@ -169,7 +171,7 @@ class VAV:
 
     # Start Critical Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
-    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None, useOptions=False):
+    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, useOptions=False):
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
@@ -241,8 +243,8 @@ class VAV:
     # If no flow rate or deltaT is given, will calculate deltaT (flow temperature - source temperature).
     # Introducing deltaT and flowValue will perform the full operation.
     def _reheatCalcSingle(self, flowTempValue, sourceTempValue, flowValue=None, deltaT=None):
-        RHO = eval(Options.data['rho_val']) * pq.kg/pq.m**3
-        C = eval(Options.data['c_val']) * pq.J/(pq.kg*pq.degC)
+        RHO = self.rho * pq.kg/pq.m**3
+        C = self.specific_heat * pq.J/(pq.kg*pq.degC)
         flowTemp = (flowTempValue * pq.degF).rescale('degC')
         sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
         if not deltaT is None:
@@ -262,75 +264,37 @@ class VAV:
     # specified. Outputs as either average of all values calculated, sum of all values calculated, as the
     # series as a whole, or as a combination of the three, depending on which of avgVals, sumVals, or rawVals
     # are set to True.
-    def calcThermLoad(self, start_date=None, end_date=None, \
-                      interpolation_time='5min', limit=1000, avgVals=False, \
-                      sumVals=False, rawVals=False, testInput=False, inputFrames=None, useOptions=False):
+    def calcThermLoad(self, start_date=None, end_date=None,
+                      interpolation_time='5min', limit=1000, avgVals=False,
+                      sumVals=False, rawVals=False, inputFrames=None, useOptions=False):
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
 
-        if inputFrames:
-            if inputFrames['Flow_Temperature'] is None or \
-               inputFrames['Room_Temperature'] is None or \
-               inputFrames['Flow_Rate'] is None:
-                return None
-            temprFlowStrDt = inputFrames['Flow_Temperature'].copy()
-            roomTemprStrDt = inputFrames['Room_Temperature'].copy()
-            volAirFlowStrDt = inputFrames['Flow_Rate'].copy()
-        else:
-            if useOptions:
-                temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), useOptions=True)
-                roomTemprStrDt  = self.getData(self.getsensor('Room_Temperature'), useOptions=True)
-                volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), useOptions=True)
-            else:
-                temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
-                roomTemprStrDt  = self.getData(self.getsensor('Room_Temperature'), start_date, end_date, interpolation_time, limit=limit)
-                volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
+        temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+        roomTemprStrDt  = self.getData(self.getsensor('Room_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+        volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
 
-        temprFlowStrDt.columns  = ['temprFlow']
-        roomTemprStrDt.columns  = ['roomTempr']
-        volAirFlowStrDt.columns = ['volAirFlow']
-        
-        intermediate = temprFlowStrDt.merge(roomTemprStrDt, right_index=True, left_index=True, how='outer')
-        fullGrouping = intermediate.merge(volAirFlowStrDt, right_index=True, left_index=True, how='outer')
-        # fullGrouping = fullGrouping.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
-        
-        temprFlowStreamData  = list(fullGrouping['temprFlow'])
-        roomTemprStreamData  = list(fullGrouping['roomTempr'])
-        volAirFlowStreamData = list(fullGrouping['volAirFlow'])
-        
-        RHO = eval(Options.data['rho_val']) * pq.kg/pq.m**3
-        C = eval(Options.data['c_val']) * pq.J/(pq.kg*pq.degC)
-        newList = []
-        
-        flwTmprF = temprFlowStreamData * pq.degF
-        flwTmprC = flwTmprF.rescale('degC')
-        roomTmprF = roomTemprStreamData * pq.degF
-        roomTmprC = roomTmprF.rescale('degC')
+        fullGrouping = temprFlowStrDt.join([roomTemprStrDt, volAirFlowStrDt], how='outer')
+
+        flwTmprC  = (list(fullGrouping['Flow_Temperature']) * pq.degF).rescale('degC')
+        roomTmprC  = (list(fullGrouping['Room_Temperature']) * pq.degF).rescale('degC')
+        frMetric = (list(fullGrouping['Flow_Rate']) * (pq.foot**3 / pq.minute))\
+                                                                    .rescale(pq.CompoundUnit('meter**3/second'))
+
         temprDiff = flwTmprC - roomTmprC
-        flowRate = volAirFlowStreamData * (pq.foot**3 / pq.minute)
-        frMetric = flowRate.rescale(pq.CompoundUnit('meter**3/second'))
-        load = (temprDiff * frMetric * RHO * C).rescale('W')
+        load = (temprDiff * frMetric * self.rho * self.specific_heat).rescale('W')
         
         retDict = {}
         newList = list([float(e) for e in load])
+        return self._determineOutput(newList, fullGrouping.index, sumVals, avgVals, rawVals)
 
-        if sumVals:
-            retDict['Sum'] = sum(newList)
-        if avgVals:
-            if len(newList) == 0:
-                retDict['Avg'] = 0
-            else:
-                retDict['Avg'] = sum(newList)/float(len(newList))
-        if rawVals:
-            retDict['Raw'] = {'Time':list(fullGrouping.index), 'Value':newList}
-        return retDict
 
 
     # Calculates the difference between source temperature readings and air flow temperature readings from a room's vent. Only does so
     # for readings which coincide with a zero reading for valve-position. Returns the average of results.
     # NOTE: Returns in degrees celcius
-    def calcDelta(self, ahu=None, start_date=None, end_date=None, \
+    def calcDelta(self, ahu=None, start_date=None, end_date=None,
                   interpolation_time='5min', limit=1000, testInput=False, inputFrames=None, useOptions=False):
         if testInput:
             temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
@@ -368,7 +332,6 @@ class VAV:
         
         temprFlowStreamData  = list(fullGrouping['temprFlow'])
         sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
-        #vlvPosStreamData = list(fullGrouping['vlvPosAirFlow'])
 
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData)
         newList = list([float(x) for x in newList])
@@ -380,29 +343,13 @@ class VAV:
 
 
     
-    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None, \
-                   interpolation_time='5min', limit=1000, avgVals=False, \
-                   sumVals=False, rawVals=False, omitVlvOff=False, \
+    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None,
+                   interpolation_time='5min', limit=1000, avgVals=False,
+                   sumVals=False, rawVals=False, omitVlvOff=False,
                    testInput=False, inputFrames=None, useOptions=False):
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
-
-        if testInput:
-            temprFlowStrDt    = getCSVFrame('temprFlowTest.csv')
-            sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
-            vlvPosStrDt       = getCSVFrame('vlvPosTest.csv')
-            volAirFlowStrDt   = getCSVFrame('volAirFlowTest.csv')
-        elif inputFrames:
-                if inputFrames['Flow_Temperature'] is None or \
-                   inputFrames['Source_Temperature'] is None or \
-                   inputFrames['Valve_Position'] is None or \
-                   inputFrames['Flow_Rate'] is None:
-                    return None
-                temprFlowStrDt = inputFrames['Flow_Temperature'].copy()
-                sourceTemprStrDt = inputFrames['Source_Temperature'].copy()
-                vlvPosStrDt = inputFrames['Valve_Position'].copy()
-                volAirFlowStrDt = inputFrames['Flow_Rate'].copy()
         else:
             assert type(ahu) is AHU and delta is not None
             if useOptions:
@@ -430,8 +377,8 @@ class VAV:
         if omitVlvOff:
             fullGrouping = fullGrouping[fullGrouping['vlvPos'] != 0]
 
-        RHO = eval(Options.data['rho_val']) * pq.kg/pq.m**3
-        C = eval(Options.data['c_val']) * pq.J/(pq.kg*pq.degC)
+        RHO = self.rho * pq.kg/pq.m**3
+        C = self.specific_heat * pq.J/(pq.kg*pq.degC)
 
         temprFlowStreamData    = list(fullGrouping['temprFlow'])
         sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
@@ -440,7 +387,10 @@ class VAV:
         
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
         newList = list([float(x) for x in newList])
+        return self._determineOutput(newList, fullGrouping.index, sumVals, avgVals, rawVals)
 
+    @staticmethod
+    def _determineOutput(newList, index, sumVals, avgVals, rawVals):
         retDict = {}
         if sumVals:
             retDict['Sum'] = sum(newList)
@@ -450,8 +400,10 @@ class VAV:
             else:
                 retDict['Avg'] = sum(newList) / float(len(newList))
         if rawVals:
-            retDict['Raw'] = {'Time':list(fullGrouping.index), 'Value':newList}
+            retDict['Raw'] = {'Time':list(index,index), 'Value':newList}
         return retDict
+
+
     
     ##################
     #END CALC METHODS#
@@ -460,7 +412,7 @@ class VAV:
 
 
 if __name__ == "__main__":
-    sensors = {'Valve_Position': '3c1f8ad8-4e7c-5146-8570-f270fb07408c',
+    sensorsS120 = {'Valve_Position': '3c1f8ad8-4e7c-5146-8570-f270fb07408c',
            'Flow_Rate': 'e6ac0b13-ef94-5fbe-99ff-01b31a8a259a',
            'CTL_FLOW_MIN':'b7336b08-7d8b-57f2-8826-62cf78a64bed',
            'Damper_Position': '0355e7cc-54ec-5356-9557-161bc436ebc3',
@@ -469,6 +421,16 @@ if __name__ == "__main__":
            'Set_Point': 'd37351e1-f2f3-5d8e-a79a-9c2d518752e2',
            'Room_Temperature': '6394dea9-f31d-5cb1-8f5f-548d0b38d222',
               }
+    sensorsS102 = {
+        'Flow_Temperature': '996bafbd-d02a-5ebf-b3fd-c328466c057e',
+        'Valve_Position': 'd5469c07-2fcd-5e60-963e-e8eac1658efe',
+        'Flow_Rate': '551257ee-759e-5a0e-a603-6f920dbd8106',
+        'Room_Temperature': '0edc67d8-8b2b-5f6c-b7d5-0a44db68dcdc',
+        'Damper_Position': '57510e92-1ff8-5850-bd94-eabf5ca1ab40',
+        'Set_Point': '785175b2-05e7-56a3-9960-9b9887f6f300',
+        'Heat_Cool': '917d4790-26b1-5193-be88-4bb3e7a6c4d6'
 
-    tmp = VAV('S1-20', sensors, 'Current')
-    table = tmp.find_critical_temp_heat(getAll=True)
+    }
+
+    tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
+    table = tmp.calcThermLoad()
