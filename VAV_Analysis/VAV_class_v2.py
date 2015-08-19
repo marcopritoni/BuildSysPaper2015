@@ -116,7 +116,7 @@ class VAV:
        Returns the percentage of damper positions that are far outside the
        expected and desired norm. Setting getAll as True will return an
        in-depth table instead (see _getCriticalTable for more information).'''
-    def _find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
+    def find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
                              interpolation_time='5min', threshold=95, getAll=False, inputFrame=None, useOptions=False):
         if threshold is None and not useOptions:
             threshold = 95
@@ -144,7 +144,7 @@ class VAV:
 
     # Start Critical Temp heat function
     # Returns the percentage of temperatures that are beyond the heating setpoint.
-    def _find_critical_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015',
+    def find_critical_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015',
                                  interpolation_time='5Min', threshold=3, getAll=False, inputFrame=None, useOptions=False):
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
@@ -169,7 +169,7 @@ class VAV:
 
     # Start Critical Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
-    def _find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None, useOptions=False):
+    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, inputFrame=None, useOptions=False):
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
@@ -181,7 +181,7 @@ class VAV:
 
         table = self._get_stpt(date_start, date_end, interpolation_time, 0)
         ### Output ###
-        var = table['Cool_Setpoint'] - table['Room_Temperature']
+        var = table['Room_Temperature'] - table['Cool_Setpoint']
         table['Temp_Cool_Analysis'] = var > threshold
         if getAll:
             return table
@@ -191,33 +191,6 @@ class VAV:
             percent = (count / total) * 100
             return percent
     # End Critical Temp Cool Function
-
-    # Start Find Critical
-    # Finds critical pressure, heat, or cool, based on critical_type arg. Takes also query info and interpolation time,
-    # which it passes to the critical helper functions above
-    # getAll=True makes this return a timeseries of 0 and 1 values (1's representing critical readings)
-    # inputFrame (might change this to inputFrames) makes this take in dataframes from already-queried data, rather than querying the data itself.
-
-    def find_critical(self, critical_type, threshold=None, date_start='1/1/2014',
-                   date_end='now', interpolation_time = '5Min', getAll=False,
-                   inputFrame=None, useOptions=False):
-        if critical_type == 'pressure':
-            if useOptions:
-                return self._find_critical_pressure(inputFrame=inputFrame, getAll=getAll, useOptions=True)
-            else:
-                return self._find_critical_pressure(date_start, date_end, interpolation_time, threshold, getAll=getAll, inputFrame=inputFrame)
-        elif critical_type == 'temp_cool':
-            if useOptions:
-                return self._find_critical_temp_cool(inputFrame=inputFrame, getAll=getAll, useOptions=True)
-            else:
-                return self._find_critical_temp_cool(date_start, date_end, interpolation_time, threshold, getAll=getAll, inputFrame=inputFrame)
-        elif critical_type == 'temp_heat':
-            if useOptions:
-                return self._find_critical_temp_heat(inputFrame=inputFrame, getAll=getAll, useOptions=True)
-            else:
-                return self._find_critical_temp_heat(date_start, date_end, interpolation_time, threshold, getAll=getAll, inputFrame=inputFrame)
-        else:
-            print critical_type + ' is not a valid option for critical_type'
 
     def _get_stpt(self, date_start, date_end, interpolation_time, hcv):
 
@@ -255,8 +228,6 @@ class VAV:
         else:
             new_table = roomTemp.merge(stpt, how='outer', left_index=True, right_index=True)
         return new_table
-
-    # End Find Critical
 
     ######################
     #END CRITICAL METHODS#
@@ -500,4 +471,4 @@ if __name__ == "__main__":
               }
 
     tmp = VAV('S1-20', sensors, 'Current')
-    table = tmp.find_critical('temp_heat', getAll=True)
+    table = tmp.find_critical_temp_heat(getAll=True)
