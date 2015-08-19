@@ -111,42 +111,6 @@ class VAV:
     ########################
     #START CRITICAL METHODS#
     ########################
-    '''Generates a table of 0 and 1 values, alongside datetimes. Used to
-       give in-depth data on critical values, rather than just a percentage.
-       1's represent critical values, and 0's represent non-critical values.'''
-    def _getCriticalTable(self, firstFrame, colName1='Damper_Position', colName2=None, second=None, threshold=5, ineq='>=', op1=1):
-        combined = False
-        if type(second) is pd.DataFrame:
-            frm = firstFrame.merge(second, right_index=True, left_index=True, how='inner')
-            combined = True
-        else:
-            frm = firstFrame
-
-        outTable = {'Time':[],'Value':[]}
-        for index, row in frm.iterrows():
-            firstVal = row[colName1]
-            if second is None:
-                secondVal = 0
-            elif type(second) is pd.DataFrame:
-                secondVal = row[colName2]
-            else:
-                secondVal = second
-
-            if op1 == 1:
-                result = eval(str(firstVal) + ' - ' + str(secondVal) + ' ' + ineq + ' ' + str(threshold))
-            elif op1 == 2:
-                result = eval(str(secondVal) + ' - ' + str(firstVal) + ' ' + ineq + ' ' + str(threshold))
-
-            if result:
-                outTable['Value'].append(1)
-            else:
-                outTable['Value'].append(0)
-            outTable['Time'].append(index)
-
-        outFrame = pd.DataFrame(outTable)
-        outFrame.set_index('Time', inplace=True)
-        return outFrame
-        
 
     '''Start critical pressure function
        Returns the percentage of damper positions that are far outside the
@@ -201,23 +165,6 @@ class VAV:
             count = float(table[table['Temp_Heat_Analysis'] == True].count())
             percent = (count / total) * 100
             return percent
-        ### Output ###
-        # if getAll:
-        #     if self.temp_control_type == 'Current':
-        #         return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=None, threshold=threshold, ineq='>', op1=1)
-        #     else:
-        #         return self._getCriticalTable(roomTemp, colName1='Room_Temperature', second=stpt, colName2=stptName, threshold=threshold, ineq='>', op1=1)
-        #
-        # if self.temp_control_type == 'Current':
-        #     total = float(new_table[['Room_Temperature']].count())
-        # else:
-        #     total = float(roomTemp.count())
-        # if self.temp_control_type == 'Current':
-        #      count = float(new_table[['Room_Temperature']].where(new_table[['Room_Temperature']] - stpt > threshold).count())
-        # else:
-        #      count = float(roomTemp.where(roomTemp[['Room_Temperature']] - stpt[[stptName]] > threshold).count())
-        # percent = (count / total) * 100
-        # return percent
     # End Critical Temp heat function
 
     # Start Critical Temp Cool Function
@@ -285,24 +232,10 @@ class VAV:
             stptName = 'Set_Point'
 
         if self.temp_control_type == 'Current':
-            print 'begin Heat_Cool query'
-            a = datetime.now()
             table = self.getData(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
-            b = datetime.now()
-            c = b - a
-            print c.total_seconds()
         print 'begin Room Temp Query'
-        a = datetime.now()
         roomTemp = self.getData(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
-        b = datetime.now()
-        c = b - a
-        print c.total_seconds()
-        print 'begin stpt query'
-        a = datetime.now()
         stpt = self.getData(self.getsensor(stptName), date_start, date_end, interpolation_time)
-        b = datetime.now()
-        c = b - a
-        print c.total_seconds()
         if hcv == 0:
             stptName = 'Cool_Setpoint'
         else:
@@ -544,7 +477,7 @@ class VAV:
             if len(newList) == 0:
                 retDict['Avg'] = 0
             else:
-                retDict['Avg'] = sum(newList)/float(len(newList))
+                retDict['Avg'] = sum(newList) / float(len(newList))
         if rawVals:
             retDict['Raw'] = {'Time':list(fullGrouping.index), 'Value':newList}
         return retDict
@@ -567,4 +500,4 @@ if __name__ == "__main__":
               }
 
     tmp = VAV('S1-20', sensors, 'Current')
-    table = tmp.find_critical('temp_cool', getAll=True)
+    table = tmp.find_critical('temp_heat', getAll=True)
