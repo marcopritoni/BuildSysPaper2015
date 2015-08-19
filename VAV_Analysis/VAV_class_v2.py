@@ -243,18 +243,14 @@ class VAV:
     # If no flow rate or deltaT is given, will calculate deltaT (flow temperature - source temperature).
     # Introducing deltaT and flowValue will perform the full operation.
     def _reheatCalcSingle(self, flowTempValue, sourceTempValue, flowValue=None, deltaT=None):
-        RHO = self.rho * pq.kg/pq.m**3
-        C = self.specific_heat * pq.J/(pq.kg*pq.degC)
-        flowTemp = (flowTempValue * pq.degF).rescale('degC')
-        sourceTemp = (sourceTempValue * pq.degF).rescale('degC')
         if not deltaT is None:
-            temp = flowTemp - sourceTemp + (deltaT * pq.degC)
+            temp = flowTempValue - sourceTempValue + (deltaT * pq.degC)
         else:
-            temp = flowTemp - sourceTemp
+            temp = flowTempValue - sourceTempValue
         if not flowValue is None:
             flow = flowValue * (pq.ft**3 / pq.minute)
             flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
-            calcVal = (temp * flow * RHO * C).rescale('W')
+            calcVal = (temp * flow * self.rho * self.specific_heat).rescale('W')
         else:
             calcVal = temp
         return calcVal
@@ -264,9 +260,9 @@ class VAV:
     # specified. Outputs as either average of all values calculated, sum of all values calculated, as the
     # series as a whole, or as a combination of the three, depending on which of avgVals, sumVals, or rawVals
     # are set to True.
-    def calcThermLoad(self, start_date=None, end_date=None,
-                      interpolation_time='5min', limit=1000, avgVals=False,
-                      sumVals=False, rawVals=False, inputFrames=None, useOptions=False):
+    def calcThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False,
+                      sumVals=False, rawVals=False):
+
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
@@ -275,19 +271,15 @@ class VAV:
         roomTemprStrDt  = self.getData(self.getsensor('Room_Temperature'), start_date, end_date, interpolation_time, limit=limit)
         volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
 
-        fullGrouping = temprFlowStrDt.join([roomTemprStrDt, volAirFlowStrDt], how='outer')
 
-        flwTmprC  = (list(fullGrouping['Flow_Temperature']) * pq.degF).rescale('degC')
-        roomTmprC  = (list(fullGrouping['Room_Temperature']) * pq.degF).rescale('degC')
-        frMetric = (list(fullGrouping['Flow_Rate']) * (pq.foot**3 / pq.minute))\
+        flwTmprC  = (list(temprFlowStrDt['Flow_Temperature']) * pq.degF).rescale('degC')
+        roomTmprC  = (list(roomTemprStrDt['Room_Temperature']) * pq.degF).rescale('degC')
+        frMetric = (list(volAirFlowStrDt['Flow_Rate']) * (pq.foot**3 / pq.minute))\
                                                                     .rescale(pq.CompoundUnit('meter**3/second'))
 
         temprDiff = flwTmprC - roomTmprC
         load = (temprDiff * frMetric * self.rho * self.specific_heat).rescale('W')
-        
-        retDict = {}
-        newList = list([float(e) for e in load])
-        return self._determineOutput(newList, fullGrouping.index, sumVals, avgVals, rawVals)
+        return self._determineOutput(load.magnitude, temprFlowStrDt.index, sumVals, avgVals, rawVals)
 
 
 
@@ -295,79 +287,41 @@ class VAV:
     # for readings which coincide with a zero reading for valve-position. Returns the average of results.
     # NOTE: Returns in degrees celcius
     def calcDelta(self, ahu=None, start_date=None, end_date=None,
-                  interpolation_time='5min', limit=1000, testInput=False, inputFrames=None, useOptions=False):
-        if testInput:
-            temprFlowStrDt  = getCSVFrame('temprFlowTest.csv')
-            sourceTemprStrDt  = getCSVFrame('sourceTempr.csv')
-            vlvPosStrDt = getCSVFrame('vlvPosTest.csv')
-        elif inputFrames:
-            if inputFrames['Flow_Temperature'] is None or \
-               inputFrames['Source_Temperature'] is None or \
-               inputFrames['Valve_Position'] is None:
-                return None
-            temprFlowStrDt = inputFrames['Flow_Temperature'].copy()
-            sourceTemprStrDt = inputFrames['Source_Temperature'].copy()
-            vlvPosStrDt = inputFrames['Valve_Position'].copy()
-        else:
-            assert type(ahu) is AHU
-            if useOptions:
-                temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), useOptions=True)
-                sourceTemprStrDt  = self.getData(None, externalID=ahu.uuidSAT, useOptions=True)
-                vlvPosStrDt = self.getData(self.getsensor('Valve_Position'),  useOptions=True)
-            else:
-                temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
-                sourceTemprStrDt  = self.getData(None, start_date, end_date, interpolation_time, limit=limit, externalID=ahu.uuidSAT)
-                vlvPosStrDt = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
+                  interpolation_time='5min', limit=1000):
 
+        assert type(ahu) is AHU
+        temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+        sourceTemprStrDt  = self.getData(None, start_date, end_date, interpolation_time, limit=limit, externalID=ahu.uuidSAT)
+        vlvPosStrDt = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
 
-        temprFlowStrDt.columns = ['temprFlow']
         sourceTemprStrDt.columns = ['sourceTempr']
-        vlvPosStrDt.columns = ['vlvPos']
+
+        fullGrouping = temprFlowStrDt.join([sourceTemprStrDt, vlvPosStrDt])
+        fullGrouping = fullGrouping[fullGrouping['Valve_Position'] == 0]
         
+        temprFlowStreamData  = (list(fullGrouping['Flow_Temperature']) * pq.degF).rescale('degC')
+        sourceTemprStreamData  = (list(fullGrouping['sourceTempr']) * pq.degF).rescale('degC')
 
-        intermediate = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
-        fullGrouping = intermediate.merge(vlvPosStrDt, right_index=True, left_index=True)
-
-        fullGrouping = fullGrouping[fullGrouping['vlvPos'] == 0]
-        
-        temprFlowStreamData  = list(fullGrouping['temprFlow'])
-        sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
-
-        newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData)
-        newList = list([float(x) for x in newList])
-
+        newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData).magnitude
         if len(newList) == 0:
             return 0.0
-
         return sum(newList) / len(newList)
 
 
     
-    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None,
-                   interpolation_time='5min', limit=1000, avgVals=False,
-                   sumVals=False, rawVals=False, omitVlvOff=False,
-                   testInput=False, inputFrames=None, useOptions=False):
+    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None,interpolation_time='5min', limit=1000,
+                   avgVals=False, sumVals=False, rawVals=False, omitVlvOff=False):
+
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
-        else:
-            assert type(ahu) is AHU and delta is not None
-            if useOptions:
-                temprFlowStrDt    = self.getData(self.getsensor('Flow_Temperature'), useOptions=True)
-                sourceTemprStrDt  = self.getData(None, externalID=ahu.uuidSAT, useOptions=True)
-                vlvPosStrDt       = self.getData(self.getsensor('Valve_Position'), useOptions=True)
-                volAirFlowStrDt   = self.getData(self.getsensor('Flow_Rate'), useOptions=True)
-            else:
-                temprFlowStrDt    = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
-                sourceTemprStrDt  = self.getData(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
-                vlvPosStrDt       = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
-                volAirFlowStrDt   = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
+        assert type(ahu) is AHU and delta is not None
+        temprFlowStrDt    = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
+        sourceTemprStrDt  = self.getData(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
+        vlvPosStrDt       = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
+        volAirFlowStrDt   = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
 
-
-        temprFlowStrDt.columns   = ['temprFlow']
         sourceTemprStrDt.columns = ['sourceTempr']
-        vlvPosStrDt.columns      = ['vlvPos']
-        volAirFlowStrDt.columns  = ['volAirFlow']
 
         interm1 = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
         interm2 = volAirFlowStrDt.merge(vlvPosStrDt, right_index=True, left_index=True)
@@ -380,14 +334,14 @@ class VAV:
         RHO = self.rho * pq.kg/pq.m**3
         C = self.specific_heat * pq.J/(pq.kg*pq.degC)
 
-        temprFlowStreamData    = list(fullGrouping['temprFlow'])
-        sourceTemprStreamData  = list(fullGrouping['sourceTempr'])
-        volAirFlowStreamData   = list(fullGrouping['volAirFlow'])
+        temprFlowStreamData    = (list(fullGrouping['temprFlow']) * pq.degF).rescale('degC')
+        sourceTemprStreamData  = (list(fullGrouping['sourceTempr']) * pq.degF).rescale('degC')
+        volAirFlowStreamData   = (list(fullGrouping['volAirFlow'] )* (pq.ft**3 / pq.minute)).\
+                                    rescale(pq.CompoundUnit('meter**3/second'))
         valvePosStreamData     = list(fullGrouping['vlvPos'])
         
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
-        newList = list([float(x) for x in newList])
-        return self._determineOutput(newList, fullGrouping.index, sumVals, avgVals, rawVals)
+        return self._determineOutput(newList.magnitude, fullGrouping.index, sumVals, avgVals, rawVals)
 
     @staticmethod
     def _determineOutput(newList, index, sumVals, avgVals, rawVals):
@@ -431,6 +385,9 @@ if __name__ == "__main__":
         'Heat_Cool': '917d4790-26b1-5193-be88-4bb3e7a6c4d6'
 
     }
-
+    testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
+                  "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
+    qSensor = Sensor('Source_Temperature', testAHU.uuidSAT)
     tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
+    tmp.sensors['Source_Temperature'] = qSensor
     table = tmp.calcThermLoad()
