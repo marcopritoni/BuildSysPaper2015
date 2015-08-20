@@ -55,9 +55,14 @@ def rename_sensors(sd):
 
 # Represents a given AHU
 class AHU:
-    def __init__(self, SAT_ID, SetPt_ID):
+    def __init__(self, SAT_ID, SetPt_ID, serverAddr=None):
+        self.sensors = Sensor('Source_Temperature', SAT_ID, self)
         self.uuidSAT = SAT_ID # UUID of the source air temperature time-series
         self.uuidSetPt = SetPt_ID # UUID of the source set-point time-series.
+        if serverAddr is None:
+            self.serverAddr = "http://new.openbms.org/backend" # Address of the server which contains data for this VAV.
+        else:
+            self.serverAddr = serverAddr
     
 
 # Begin VAV class definition
@@ -243,14 +248,12 @@ class VAV:
     # If no flow rate or deltaT is given, will calculate deltaT (flow temperature - source temperature).
     # Introducing deltaT and flowValue will perform the full operation.
     def _reheatCalcSingle(self, flowTempValue, sourceTempValue, flowValue=None, deltaT=None):
-        if not deltaT is None:
+        if deltaT is not None:
             temp = flowTempValue - sourceTempValue + (deltaT * pq.degC)
         else:
             temp = flowTempValue - sourceTempValue
-        if not flowValue is None:
-            flow = flowValue * (pq.ft**3 / pq.minute)
-            flow = flow.rescale(pq.CompoundUnit('meter**3/second'))
-            calcVal = (temp * flow * self.rho * self.specific_heat).rescale('W')
+        if flowValue is not None:
+            calcVal = (temp * flowValue * self.rho * self.specific_heat).rescale('W')
         else:
             calcVal = temp
         return calcVal
@@ -288,10 +291,9 @@ class VAV:
     # NOTE: Returns in degrees celcius
     def calcDelta(self, ahu=None, start_date=None, end_date=None,
                   interpolation_time='5min', limit=1000):
-
-        assert type(ahu) is AHU
+        assert ahu.__class__ is AHU
         temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
-        sourceTemprStrDt  = self.getData(None, start_date, end_date, interpolation_time, limit=limit, externalID=ahu.uuidSAT)
+        sourceTemprStrDt  = self.getData(ahu.sensors, start_date, end_date, interpolation_time, limit=limit)
         vlvPosStrDt = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
 
         sourceTemprStrDt.columns = ['sourceTempr']
@@ -310,35 +312,29 @@ class VAV:
 
     
     def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None,interpolation_time='5min', limit=1000,
-                   avgVals=False, sumVals=False, rawVals=False, omitVlvOff=False):
+                   avgVals=False, sumVals=False, rawVals=False):
 
         if not (avgVals or sumVals or rawVals):
             print "Warning: no return type marked as True. Defaulting to avgVals."
             avgVals = True
-        assert type(ahu) is AHU and delta is not None
+        assert ahu.__class__ is AHU
         temprFlowStrDt    = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
-        sourceTemprStrDt  = self.getData(None, start_date, end_date, interpolation_time, limit=limit,  externalID=ahu.uuidSAT)
+        sourceTemprStrDt  = self.getData(ahu.sensors, start_date, end_date, interpolation_time, limit=limit)
         vlvPosStrDt       = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
         volAirFlowStrDt   = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time, limit=limit)
 
-        sourceTemprStrDt.columns = ['sourceTempr']
 
         interm1 = temprFlowStrDt.merge(sourceTemprStrDt, right_index=True, left_index=True)
         interm2 = volAirFlowStrDt.merge(vlvPosStrDt, right_index=True, left_index=True)
         fullGrouping = interm1.merge(interm2, right_index=True, left_index=True)
 
-        
-        if omitVlvOff:
-            fullGrouping = fullGrouping[fullGrouping['vlvPos'] != 0]
+        if delta is None:
+            delta = self.calcDelta(ahu, start_date, end_date, interpolation_time, limit)
 
-        RHO = self.rho * pq.kg/pq.m**3
-        C = self.specific_heat * pq.J/(pq.kg*pq.degC)
-
-        temprFlowStreamData    = (list(fullGrouping['temprFlow']) * pq.degF).rescale('degC')
-        sourceTemprStreamData  = (list(fullGrouping['sourceTempr']) * pq.degF).rescale('degC')
-        volAirFlowStreamData   = (list(fullGrouping['volAirFlow'] )* (pq.ft**3 / pq.minute)).\
+        temprFlowStreamData    = (list(fullGrouping['Flow_Temperature']) * pq.degF).rescale('degC')
+        sourceTemprStreamData  = (list(fullGrouping['Source_Temperature']) * pq.degF).rescale('degC')
+        volAirFlowStreamData   = (list(fullGrouping['Flow_Rate'] ) * (pq.ft**3 / pq.minute)).\
                                     rescale(pq.CompoundUnit('meter**3/second'))
-        valvePosStreamData     = list(fullGrouping['vlvPos'])
         
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
         return self._determineOutput(newList.magnitude, fullGrouping.index, sumVals, avgVals, rawVals)
@@ -387,7 +383,6 @@ if __name__ == "__main__":
     }
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
-    qSensor = Sensor('Source_Temperature', testAHU.uuidSAT)
     tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
-    tmp.sensors['Source_Temperature'] = qSensor
-    table = tmp.calcThermLoad()
+
+    table = tmp.calcReheat(testAHU)

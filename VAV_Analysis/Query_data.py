@@ -15,6 +15,7 @@ import copy
 from configoptions import Options
 
 
+
 '''Each instance of this class represents a single sensor.'''
 class Sensor:
     def __init__(self, sensorType=None, sensorUUID=None, sensorOwner=None):
