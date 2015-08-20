@@ -82,11 +82,6 @@ class VAV:
             self.serverAddr = serverAddr
 
     def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min', limit=-1, externalID=None, useOptions=False):
-        if useOptions:
-            start_date = Options.data['starttime']
-            end_date = Options.data['endtime']
-            interpolation_time = Options.data['interpolationtime']
-            limit = eval(Options.data['limit'])
         if os.path.isfile('Data/' + str(sensorObj.uuid)):
             print 'file detected'
             df = pd.read_csv('Data/' + sensorObj.uuid, index_col=0)
@@ -125,13 +120,8 @@ class VAV:
        in-depth table instead (see _getCriticalTable for more information).'''
     def find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
                              interpolation_time='5min', threshold=95, getAll=False, useOptions=False):
-        if threshold is None and not useOptions:
-            threshold = 95
-        if useOptions:
-            threshold = eval(Options.data['press_threshold'])
-            table = self.getData(self.getsensor('Damper_Position'), useOptions=True)
-        else:
-            table = self.getData(self.getsensor('Damper_Position'), date_start, date_end, interpolation_time)
+
+        table = self.getData(self.getsensor('Damper_Position'), date_start, date_end, interpolation_time)
 
         if table is None:
             return None
@@ -157,14 +147,10 @@ class VAV:
             print 'unrecognized temperature control type'
             return None
 
-        if threshold is None and not useOptions:
-            threshold = 4
-        elif useOptions:
-            threshold = eval(Options.data['heat_threshold'])
-
         table = self._get_stpt(date_start, date_end, interpolation_time, 1)
         var = table['Heat_Setpoint'] - table['Room_Temperature']
         table['Temp_Heat_Analysis'] = var > threshold
+
         if getAll:
             return table
         else:
@@ -177,17 +163,16 @@ class VAV:
     # Start Critical Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
     def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, useOptions=False):
+
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
-        
-        if threshold is None and not useOptions:
-            threshold = 4
-        elif useOptions:
-            threshold = eval(Options.data['cool_threshold'])
 
         table = self._get_stpt(date_start, date_end, interpolation_time, 0)
-        ### Output ###
+
+        if table is None:
+            return None
+
         var = table['Room_Temperature'] - table['Cool_Setpoint']
         table['Temp_Cool_Analysis'] = var > threshold
         if getAll:
@@ -263,12 +248,7 @@ class VAV:
     # specified. Outputs as either average of all values calculated, sum of all values calculated, as the
     # series as a whole, or as a combination of the three, depending on which of avgVals, sumVals, or rawVals
     # are set to True.
-    def calcThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000, avgVals=False,
-                      sumVals=False, rawVals=False):
-
-        if not (avgVals or sumVals or rawVals):
-            print "Warning: no return type marked as True. Defaulting to avgVals."
-            avgVals = True
+    def calcThermLoad(self, start_date=None, end_date=None, interpolation_time='5min', limit=1000):
 
         temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
         roomTemprStrDt  = self.getData(self.getsensor('Room_Temperature'), start_date, end_date, interpolation_time, limit=limit)
@@ -282,7 +262,7 @@ class VAV:
 
         temprDiff = flwTmprC - roomTmprC
         load = (temprDiff * frMetric * self.rho * self.specific_heat).rescale('W')
-        return self._determineOutput(load.magnitude, temprFlowStrDt.index, sumVals, avgVals, rawVals)
+        return self._produceOutput(load.magnitude, temprFlowStrDt.index)
 
 
 
@@ -291,7 +271,9 @@ class VAV:
     # NOTE: Returns in degrees celcius
     def calcDelta(self, ahu=None, start_date=None, end_date=None,
                   interpolation_time='5min', limit=1000):
+
         assert ahu.__class__ is AHU
+
         temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
         sourceTemprStrDt  = self.getData(ahu.sensors, start_date, end_date, interpolation_time, limit=limit)
         vlvPosStrDt = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
@@ -299,6 +281,7 @@ class VAV:
         sourceTemprStrDt.columns = ['sourceTempr']
 
         fullGrouping = temprFlowStrDt.join([sourceTemprStrDt, vlvPosStrDt])
+        print fullGrouping
         fullGrouping = fullGrouping[fullGrouping['Valve_Position'] == 0]
         
         temprFlowStreamData  = (list(fullGrouping['Flow_Temperature']) * pq.degF).rescale('degC')
@@ -309,14 +292,8 @@ class VAV:
             return 0.0
         return sum(newList) / len(newList)
 
+    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None,interpolation_time='5min', limit=1000):
 
-    
-    def calcReheat(self, ahu=None, delta=None, start_date=None, end_date=None,interpolation_time='5min', limit=1000,
-                   avgVals=False, sumVals=False, rawVals=False):
-
-        if not (avgVals or sumVals or rawVals):
-            print "Warning: no return type marked as True. Defaulting to avgVals."
-            avgVals = True
         assert ahu.__class__ is AHU
         temprFlowStrDt    = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time, limit=limit)
         sourceTemprStrDt  = self.getData(ahu.sensors, start_date, end_date, interpolation_time, limit=limit)
@@ -337,20 +314,17 @@ class VAV:
                                     rescale(pq.CompoundUnit('meter**3/second'))
         
         newList = self._reheatCalcSingle(temprFlowStreamData, sourceTemprStreamData, volAirFlowStreamData, delta)
-        return self._determineOutput(newList.magnitude, fullGrouping.index, sumVals, avgVals, rawVals)
+        return self._produceOutput(newList.magnitude, fullGrouping.index)
 
     @staticmethod
-    def _determineOutput(newList, index, sumVals, avgVals, rawVals):
+    def _produceOutput(newList, index):
         retDict = {}
-        if sumVals:
-            retDict['Sum'] = sum(newList)
-        if avgVals:
-            if len(newList) == 0:
-                retDict['Avg'] = 0
-            else:
-                retDict['Avg'] = sum(newList) / float(len(newList))
-        if rawVals:
-            retDict['Raw'] = {'Time':list(index,index), 'Value':newList}
+        retDict['Sum'] = sum(newList)
+        if len(newList) == 0:
+            retDict['Avg'] = 0
+        else:
+            retDict['Avg'] = sum(newList) / float(len(newList))
+        retDict['Raw'] = {'Time':list(index,index), 'Value':newList}
         return retDict
 
 
@@ -385,4 +359,4 @@ if __name__ == "__main__":
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c")
     tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
 
-    table = tmp.calcReheat(testAHU)
+    table = tmp.calcDelta(testAHU)
