@@ -4,13 +4,6 @@ Modified on Jul 31 2015
 """
 from smap.archiver.client import SmapClient
 import pandas as pd
-from pprint import pprint
-from ConfigParser import ConfigParser
-import json
-import quantities as pq
-import sys
-import VavDataReader
-import csv
 import copy
 from configoptions import Options
 
@@ -64,11 +57,9 @@ def rename_sensors(sd):
    of the options class).'''
 def query_data(sensorObj, start_date='4/1/2015',
                end_date='4/2/2015', interpolation_time='5min', limit=-1,
-               externalID=None, useOptions=False):
-    if useOptions:
-        serverAddr = Options.query['client']
-    else:
-        serverAddr = sensorObj.owner.serverAddr
+               externalID=None):
+
+    serverAddr = sensorObj.owner.serverAddr
     client_obj = SmapClient(serverAddr)
     if (sensorObj is None or sensorObj.uuid is None) and externalID is None:
         if sensorObj is None:

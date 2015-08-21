@@ -62,7 +62,7 @@ class AHU:
 
 
 class VAV:
-    def __init__(self, ident, sensors, temp_control_type, rho, spec_heat, serverAddr=None):
+    def __init__(self, ident, sensors, temp_control_type, rho=1.2005, spec_heat=1005.0, serverAddr=None):
         self.ID = ident # The ID of this VAV
         self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
         self._make_sensor_objs() # convert self.sensors, as it was read in, to a dict of sensor objects.
@@ -74,7 +74,7 @@ class VAV:
         else:
             self.serverAddr = serverAddr
 
-    def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min', limit=-1, externalID=None, useOptions=False):
+    def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min', limit=-1, externalID=None):
         if os.path.isfile('Data/' + str(sensorObj.uuid)):
             print 'file detected'
             df = pd.read_csv('Data/' + sensorObj.uuid, index_col=0)
@@ -83,7 +83,7 @@ class VAV:
             df.columns = [sensorObj.sType]
             return df
         else:
-            return query_data(sensorObj, start_date, end_date, interpolation_time, limit, externalID, useOptions)
+            return query_data(sensorObj, start_date, end_date, interpolation_time, limit, externalID)
 
                    
     '''Converts dict of sensor data to dict of sensor objects'''
