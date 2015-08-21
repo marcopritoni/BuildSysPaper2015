@@ -74,7 +74,7 @@ class VAV:
         else:
             self.serverAddr = serverAddr
 
-    def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min', limit=-1, externalID=None):
+    def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5T', limit=-1, externalID=None):
         if os.path.isfile('Data/' + str(sensorObj.uuid)):
             print 'file detected'
             df = pd.read_csv('Data/' + sensorObj.uuid, index_col=0)
@@ -112,7 +112,7 @@ class VAV:
        expected and desired norm. Setting getAll as True will return an
        in-depth table instead (see _getCriticalTable for more information).'''
     def find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
-                             interpolation_time='5min', threshold=95, getAll=False):
+                             interpolation_time='5T', threshold=95, getAll=False):
 
         table = self.getData(self.getsensor('Damper_Position'), date_start, date_end, interpolation_time)
 
@@ -133,12 +133,12 @@ class VAV:
     # Start Critical Temp heat function
     # Returns the percentage of temperatures that are beyond the heating setpoint.
     def find_critical_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015',
-                                 interpolation_time='5Min', threshold=3, getAll=False, useOptions=False):
+                                 interpolation_time='5T', threshold=3, getAll=False, useOptions=False):
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
 
-        table = self._get_stpt(date_start, date_end, interpolation_time, 1)
+        table = self._get_stpt(date_start, date_end, interpolation_time, 'heat')
         diff = table['Heat_Setpoint'] - table['Room_Temperature']
         table['Temp_Heat_Analysis'] = diff > threshold
 
@@ -151,13 +151,13 @@ class VAV:
 
     # Start Critical Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
-    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5Min', threshold=4, getAll=False, useOptions=False):
+    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5T', threshold=4, getAll=False, useOptions=False):
 
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
 
-        table = self._get_stpt(date_start, date_end, interpolation_time, 0)
+        table = self._get_stpt(date_start, date_end, interpolation_time, 'cool')
 
         if table is None:
             return None
@@ -172,7 +172,10 @@ class VAV:
     # End Critical Temp Cool Function
 
     def _get_stpt(self, date_start, date_end, interpolation_time, hcv):
-
+        if hcv == 'cool':
+            hcv = 0
+        elif hcv == 'heat':
+            hcv = 1
         if self.temp_control_type == 'Dual':
             if hcv == 0:
                 stptName = 'Cool_Set_Point'
@@ -185,7 +188,6 @@ class VAV:
 
         if self.temp_control_type == 'Current':
             table = self.getData(self.getsensor('Heat_Cool'), date_start, date_end, interpolation_time)
-        print 'begin Room Temp Query'
         roomTemp = self.getData(self.getsensor('Room_Temperature'), date_start, date_end, interpolation_time)
         stpt = self.getData(self.getsensor(stptName), date_start, date_end, interpolation_time)
         if hcv == 0:
@@ -237,7 +239,7 @@ class VAV:
     # specified. Outputs as either average of all values calculated, sum of all values calculated, as the
     # series as a whole, or as a combination of the three, depending on which of avgVals, sumVals, or rawVals
     # are set to True.
-    def calcThermLoad(self, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min', limit=1000):
+    def calcThermLoad(self, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5T', limit=1000):
 
         temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time,
                                        limit=limit) * pq.degF.rescale('degC')
@@ -256,7 +258,7 @@ class VAV:
     # for readings which coincide with a zero reading for valve-position. Returns the average of results.
     # NOTE: Returns in degrees celcius
     def calcDelta(self, ahu=None, start_date=None, end_date=None,
-                  interpolation_time='5min', limit=1000):
+                  interpolation_time='5T', limit=1000):
 
         assert ahu.__class__ is AHU
 
@@ -272,7 +274,7 @@ class VAV:
         newList = self._reheatCalcSingle(fullGrouping[['Flow_Temperature']], fullGrouping[['Source_Temperature']])
         return newList.mean().values
 
-    def calcReheat(self, ahu=None, delta=None, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5min',
+    def calcReheat(self, ahu=None, delta=None, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5T',
                    limit=1000):
 
         assert ahu.__class__ is AHU
@@ -345,5 +347,5 @@ if __name__ == "__main__":
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
     tmp = VAV('S1-20', sensorsS120, 'Current', rho=1.2005, spec_heat=1005.0)
 
-    table = tmp.find_critical_pressure()
+    table = tmp.find_critical_pressure(getAll=True)
     print table

@@ -56,7 +56,7 @@ def rename_sensors(sd):
    can also be called as arguments (but this will likely be phased out in favor
    of the options class).'''
 def query_data(sensorObj, start_date='4/1/2015',
-               end_date='4/2/2015', interpolation_time='5min', limit=-1,
+               end_date='4/2/2015', interpolation_time='5T', limit=-1,
                externalID=None):
 
     serverAddr = sensorObj.owner.serverAddr
@@ -79,7 +79,8 @@ def query_data(sensorObj, start_date='4/1/2015',
     data_table = pd.DataFrame(q[0]['Readings'], columns=['Time', sensorObj.sType])
     data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
     data_table.set_index('Time', inplace=True)
-    data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
+    data_table = data_table.resample(interpolation_time).interpolate().dropna()
+    #data_table = data_table.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='linear').dropna()
     return data_table
 
 
