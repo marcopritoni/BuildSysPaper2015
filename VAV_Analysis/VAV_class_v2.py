@@ -2,23 +2,14 @@
 Modified on Jul 31 2015
 @author: Ian Hurd, Miguel Sanchez, Marco Pritoni
 """
-from smap.archiver.client import SmapClient
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn import svm, cross_validation, linear_model, preprocessing
-from pprint import pprint
-from ConfigParser import ConfigParser
-import json
 import quantities as pq
-import sys
-import VavDataReader
-import csv
 import copy
 import os.path
 from configoptions import Options
 from Query_data import query_data
-from datetime import datetime
-from TimeSeries_Util import build_table, append_rooms, seperate_periods
 
 
 '''Each instance of this class represents a single sensor.'''
@@ -71,7 +62,7 @@ class AHU:
 
 
 class VAV:
-    def __init__(self, ident, sensors, temp_control_type, rho,spec_heat, serverAddr=None):
+    def __init__(self, ident, sensors, temp_control_type, rho, spec_heat, serverAddr=None):
         self.ID = ident # The ID of this VAV
         self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
         self._make_sensor_objs() # convert self.sensors, as it was read in, to a dict of sensor objects.
@@ -121,7 +112,7 @@ class VAV:
        expected and desired norm. Setting getAll as True will return an
        in-depth table instead (see _getCriticalTable for more information).'''
     def find_critical_pressure(self, date_start='4/1/2015', date_end='4/2/2015',
-                             interpolation_time='5min', threshold=95, getAll=False, useOptions=False):
+                             interpolation_time='5min', threshold=95, getAll=False):
 
         table = self.getData(self.getsensor('Damper_Position'), date_start, date_end, interpolation_time)
 
@@ -134,9 +125,7 @@ class VAV:
         if getAll:
             return table
 
-        total = float(table.count())
-        count = float(table[table['Analysis'] == True].count())
-        percent = (count / total) * 100
+        percent = table['Analysis'].mean()
 
         return percent
     # End critical pressure function
@@ -150,15 +139,13 @@ class VAV:
             return None
 
         table = self._get_stpt(date_start, date_end, interpolation_time, 1)
-        var = table['Heat_Setpoint'] - table['Room_Temperature']
-        table['Temp_Heat_Analysis'] = var > threshold
+        diff = table['Heat_Setpoint'] - table['Room_Temperature']
+        table['Temp_Heat_Analysis'] = diff > threshold
 
         if getAll:
             return table
         else:
-            total = float(table.count())
-            count = float(table[table['Temp_Heat_Analysis'] == True].count())
-            percent = (count / total) * 100
+            percent = table['Temp_Heat_Analysis'].mean()
             return percent
     # End Critical Temp heat function
 
@@ -175,14 +162,12 @@ class VAV:
         if table is None:
             return None
 
-        var = table['Room_Temperature'] - table['Cool_Setpoint']
-        table['Temp_Cool_Analysis'] = var > threshold
+        diff = table['Room_Temperature'] - table['Cool_Setpoint']
+        table['Temp_Cool_Analysis'] = diff > threshold
         if getAll:
             return table
         else:
-            total = float(table.count())
-            count = float(table[table['Temp_Cool_Analysis'] == True].count())
-            percent = (count / total) * 100
+            percent = table['Temp_Cool_Analysis'].mean()
             return percent
     # End Critical Temp Cool Function
 
@@ -313,7 +298,7 @@ class VAV:
 
     def plot_prediction(self, model,actual ):
         plt.plot(model.predict(actual), color = 'blue')
-        plt.plot(actual, color = 'red')
+        plt.plot(actual, color='red')
         plt.title(' Predicted(blue) vs Actual(red)')
         plt.show
 
@@ -358,7 +343,7 @@ if __name__ == "__main__":
     }
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
-    tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
+    tmp = VAV('S1-20', sensorsS120, 'Current', rho=1.2005, spec_heat=1005.0)
 
-    table = tmp.calcThermLoad()
-    print table['Raw']
+    table = tmp.find_critical_pressure()
+    print table
