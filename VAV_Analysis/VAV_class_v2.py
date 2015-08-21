@@ -252,7 +252,8 @@ class VAV:
         temprDiff['Temp_Diff'] = temprFlowStrDt['Flow_Temperature'] - roomTemprStrDt['Room_Temperature']
         load = pd.DataFrame((temprDiff['Temp_Diff'] * pq.degC * volAirFlowStrDt['Flow_Rate'] *
                              self.rho * self.specific_heat).values.rescale('W'), columns=['RV'], index=temprDiff.index)
-        return self._produceOutput(load)
+
+        return self._produceOutput(volAirFlowStrDt.join([temprDiff, load], how='outer'))
 
     # Calculates the difference between source temperature readings and air flow temperature readings from a room's vent. Only does so
     # for readings which coincide with a zero reading for valve-position. Returns the average of results.
@@ -290,7 +291,7 @@ class VAV:
             delta = self.calcDelta(ahu, start_date, end_date, interpolation_time, limit)
 
         newList = self._reheatCalcSingle(temprFlowStrDt, sourceTemprStrDt, volAirFlowStrDt, delta)
-        return self._produceOutput(newList)
+        return self._produceOutput(temprFlowStrDt.join([sourceTemprStrDt, volAirFlowStrDt, newList], how='outer'))
 
     def linear_regression(self, data, target):
         [data_train, data_valid, target_train,target_valid] = self._split_data(data,target)
@@ -307,7 +308,7 @@ class VAV:
     @staticmethod
     def _produceOutput(newList):
         retDict = {}
-        retDict['Avg'] = newList.mean()
+        retDict['Avg'] = newList['RV'].mean()
         retDict['Raw'] = newList
         return retDict
 
@@ -345,7 +346,7 @@ if __name__ == "__main__":
     }
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
-    tmp = VAV('S1-20', sensorsS120, 'Current', rho=1.2005, spec_heat=1005.0)
+    tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
 
-    table = tmp.find_critical_pressure(getAll=True)
-    print table
+    table = tmp.calcReheat(testAHU)
+    print table['Raw']
