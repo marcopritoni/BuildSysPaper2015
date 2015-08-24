@@ -6,10 +6,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn import svm, cross_validation, linear_model, preprocessing
 import quantities as pq
-import copy
 import os.path
 import sys
-from configoptions import Options
 from Query_data import query_data
 from VavDataReader import importVavData
 from standardizeSensors import standardize
@@ -36,7 +34,6 @@ class AHU:
     
 
 # Begin VAV class definition
-
 class VAV:
     qStr = 'select Path, uuid where Path like "%S_-%" and Metadata/SourceName = "Sutardja Dai Hall BACnet"'
     validVAVs = importVavData(server='http://www.openbms.org/backend', query=qStr)
@@ -81,7 +78,7 @@ class VAV:
     def getsensor(self, sType):
         x = self.sensors.get(sType)
         if x is None:
-            return Sensor(sType)
+            sys.exit(sType + ' sensor does not exist for ' + str(self.ID))
 
         return x
 
@@ -273,7 +270,6 @@ class VAV:
         volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time,
                                          limit=limit) *\
                           (pq.ft**3 / pq.minute).rescale(pq.CompoundUnit('meter**3/second'))
-
         if delta is None:
             delta = self.calcDelta(ahu, start_date, end_date, interpolation_time, limit)
 
@@ -316,5 +312,6 @@ if __name__ == "__main__":
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
 
-    tmp = VAV('S1-02', 'Current')
+    tmp = VAV('S1-23', 'Current')
+    tmp.calcThermLoad()
 
