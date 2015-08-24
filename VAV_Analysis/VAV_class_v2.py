@@ -8,8 +8,11 @@ from sklearn import svm, cross_validation, linear_model, preprocessing
 import quantities as pq
 import copy
 import os.path
+import sys
 from configoptions import Options
 from Query_data import query_data
+from VavDataReader import importVavData
+from standardizeSensors import standardize
 
 
 '''Each instance of this class represents a single sensor.'''
@@ -50,8 +53,8 @@ def rename_sensors(sd):
 class AHU:
     def __init__(self, SAT_ID, SetPt_ID, serverAddr=None):
         self.sensors = Sensor('Source_Temperature', SAT_ID, self)
-        self.uuidSAT = SAT_ID # UUID of the source air temperature time-series
-        self.uuidSetPt = SetPt_ID # UUID of the source set-point time-series.
+        self.uuidSAT = SAT_ID  # UUID of the source air temperature time-series
+        self.uuidSetPt = SetPt_ID  # UUID of the source set-point time-series.
         if serverAddr is None:
             self.serverAddr = "http://new.openbms.org/backend" # Address of the server which contains data for this VAV.
         else:
@@ -60,13 +63,19 @@ class AHU:
 
 # Begin VAV class definition
 
-
 class VAV:
-    def __init__(self, ident, sensors, temp_control_type, rho=1.2005, spec_heat=1005.0, serverAddr=None):
-        self.ID = ident # The ID of this VAV
-        self.sensors = sensors # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
+    qStr = 'select Path, uuid where Path like "%S_-%" and Metadata/SourceName = "Sutardja Dai Hall BACnet"'
+    validVAVs = importVavData(server='http://www.openbms.org/backend', query=qStr)
+
+    def __init__(self, ident, temp_control_type, rho=1.2005, spec_heat=1005.0, serverAddr=None):
+        try:
+            sensors = VAV.validVAVs[ident]
+        except Exception as e:
+            sys.exit(str(e) + ' was not found in list of valid VAV names')
+        self.ID = ident     # The ID of this VAV
+        self.sensors = standardize(sensors) # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
         self._make_sensor_objs() # convert self.sensors, as it was read in, to a dict of sensor objects.
-        self.temp_control_type = temp_control_type # The type of set point data available for this VAV box
+        self.temp_control_type = temp_control_type  # The type of set point data available for this VAV box
         self.rho = rho * pq.kg/pq.meter**3
         self.specific_heat = spec_heat * pq.J/(pq.kg*pq.degC)
         if serverAddr is None:
@@ -134,7 +143,7 @@ class VAV:
     # Returns the percentage of temperatures that are beyond the heating setpoint.
     def find_critical_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015',
                                  interpolation_time='5T', threshold=3, getAll=False, useOptions=False):
-        if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
+        if self.temp_control_type not in ['Dual', 'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
 
@@ -325,28 +334,9 @@ class VAV:
 
 
 if __name__ == "__main__":
-    sensorsS120 = {'Valve_Position': '3c1f8ad8-4e7c-5146-8570-f270fb07408c',
-           'Flow_Rate': 'e6ac0b13-ef94-5fbe-99ff-01b31a8a259a',
-           'CTL_FLOW_MIN':'b7336b08-7d8b-57f2-8826-62cf78a64bed',
-           'Damper_Position': '0355e7cc-54ec-5356-9557-161bc436ebc3',
-           'CTL_FLOW_MAX': '50afb9ef-2bf5-57f2-8f0a-9de974cd51ed',
-           'Heat_Cool': '682e5119-01d6-537f-8413-af0b3253c586',
-           'Set_Point': 'd37351e1-f2f3-5d8e-a79a-9c2d518752e2',
-           'Room_Temperature': '6394dea9-f31d-5cb1-8f5f-548d0b38d222',
-              }
-    sensorsS102 = {
-        'Flow_Temperature': '996bafbd-d02a-5ebf-b3fd-c328466c057e',
-        'Valve_Position': 'd5469c07-2fcd-5e60-963e-e8eac1658efe',
-        'Flow_Rate': '551257ee-759e-5a0e-a603-6f920dbd8106',
-        'Room_Temperature': '0edc67d8-8b2b-5f6c-b7d5-0a44db68dcdc',
-        'Damper_Position': '57510e92-1ff8-5850-bd94-eabf5ca1ab40',
-        'Set_Point': '785175b2-05e7-56a3-9960-9b9887f6f300',
-        'Heat_Cool': '917d4790-26b1-5193-be88-4bb3e7a6c4d6'
 
-    }
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
-    tmp = VAV('S1-20', sensorsS102, 'Current', rho=1.2005, spec_heat=1005.0)
 
-    table = tmp.calcReheat(testAHU)
-    print table['Raw']
+    tmp = VAV('S1-02', 'Current')
+
