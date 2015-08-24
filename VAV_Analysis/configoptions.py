@@ -13,22 +13,6 @@ class Options:
         Options.output = cDict['Output_Options']
         Options.data = cDict['Data_Attributes']
 
-        if Options.files.get('namesjson') is not None:
-            with open(Options.files['namesjson']) as f:
-                Options.names = json.load(f)
-            f.close()
-        else:
-            Options.names = {'Flow_Temperature':['AI_3'],
-                             'Valve_Position':['VLV_POS'],
-                             'Flow_Rate':['AIR_VOLUME'],
-                             'Room_Temperature':['ROOM_TEMP'],
-                             'Damper_Position':['DMPR_POS'],
-                             'Heat_Set_Point':['HEAT_STPT'],
-                             'Cool_Set_Point':['COOL_STPT'],
-                             'Set_Point':['STPT', 'CTL_STPT'],
-                             'Heat_Cool':['HEAT.COOL']}
-        Options._reverse_names()
-
     @staticmethod
     def _config_to_dict(cParser):
         cDict = {}
@@ -72,13 +56,3 @@ class Options:
             sys.exit(1)
 
         return configFileName
-
-    @staticmethod
-    def _reverse_names():
-        revNames = {}
-        for key in Options.names:
-            for e in Options.names[key]:
-                # print "revNames['" + e + "'] = '" + key + "'"
-                revNames[e] = key
-
-        Options.rNames = revNames
