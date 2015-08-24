@@ -23,32 +23,6 @@ class Sensor:
         self.owner = sensorOwner # reference to the VAV, AHU, or other object
                                  # that owns this sensor.
 
-#######################
-#START RENAME FUNCTION#
-#######################
-
-'''Renames keys in sd to standard names specified.
-   dict is returned which is copy of sd except with renamed keys'''
-def rename_sensors(sd):
-    sDict = copy.deepcopy(sd)
-    repCounts = {}
-    for key in sDict:
-        trueName = Options.rNames.get(key)
-        if trueName is not None:
-            if trueName in sDict.keys():
-                print "REPEAT DETECTED."
-            else:
-                sDict[Options.rNames[key]] = sDict[key]
-                repCounts[trueName] = 1
-                del sDict[key]
-
-    return sDict
-#####################
-#END RENAME FUNCTION#
-#####################
-
-
-
 # Represents a given AHU
 class AHU:
     def __init__(self, SAT_ID, SetPt_ID, serverAddr=None):
@@ -142,12 +116,12 @@ class VAV:
     # Start Critical Temp heat function
     # Returns the percentage of temperatures that are beyond the heating setpoint.
     def find_critical_temp_heat(self, date_start='4/1/2015', date_end='4/2/2015',
-                                 interpolation_time='5T', threshold=3, getAll=False, useOptions=False):
+                                 interpolation_time='5T', threshold=3, getAll=False, offset=0):
         if self.temp_control_type not in ['Dual', 'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
 
-        table = self._get_stpt(date_start, date_end, interpolation_time, 'heat')
+        table = self._get_stpt(date_start, date_end, interpolation_time, 'heat', offset)
         diff = table['Heat_Setpoint'] - table['Room_Temperature']
         table['Temp_Heat_Analysis'] = diff > threshold
 
@@ -160,13 +134,13 @@ class VAV:
 
     # Start Critical Temp Cool Function
     # Returns the percentage of temperatures that are beyond the cooling setpoint.
-    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5T', threshold=4, getAll=False, useOptions=False):
+    def find_critical_temp_cool(self, date_start='4/1/2015', date_end='4/2/2015', interpolation_time='5T', threshold=4, getAll=False, offset=0):
 
         if self.temp_control_type not in ['Dual' ,'Single', 'Current']:
             print 'unrecognized temperature control type'
             return None
 
-        table = self._get_stpt(date_start, date_end, interpolation_time, 'cool')
+        table = self._get_stpt(date_start, date_end, interpolation_time, 'cool', offset)
 
         if table is None:
             return None
@@ -180,7 +154,7 @@ class VAV:
             return percent
     # End Critical Temp Cool Function
 
-    def _get_stpt(self, date_start, date_end, interpolation_time, hcv):
+    def _get_stpt(self, date_start, date_end, interpolation_time, hcv, offset):
         if hcv == 'cool':
             hcv = 0
         elif hcv == 'heat':
@@ -201,8 +175,12 @@ class VAV:
         stpt = self.getData(self.getsensor(stptName), date_start, date_end, interpolation_time)
         if hcv == 0:
             stptName = 'Cool_Setpoint'
+            if self.temp_control_type == 'Single':
+                stpt.stptName += offset
         else:
             stptName = 'Heat_Setpoint'
+            if self.temp_control_type == 'Single':
+                stpt.stptName -= offset
         stpt.columns = [stptName]
         if self.temp_control_type == 'Current' and table is None:
             return None
