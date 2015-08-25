@@ -19,5 +19,6 @@ def standardize(sensors):
         try:
             new_dict[sens_dict[key]] = sensors[key][0]
         except KeyError as e:
-            print 'could not standardize ' + str(e)
+            continue
+            # print 'could not standardize ' + str(e)
     return new_dict

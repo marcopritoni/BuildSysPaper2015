@@ -41,4 +41,10 @@ for room in validVAVs:
             data_table = data_table.resample(interpolation_time)
             data_table.to_csv(outputDir + '/' + sensor)
 
-
+AHUSENSOR = "a7aa36e6-10c4-5008-8a02-039988f284df"
+data = c.query("select data in ('%s','%s') where uuid='%s' " % (startDate, endDate, AHUSENSOR))
+data_table = pd.DataFrame(data[0]['Readings'], columns=['Time', 'Readings'])
+data_table['Time'] = pd.to_datetime(data_table['Time'].tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
+data_table.set_index('Time', inplace=True)
+data_table = data_table.resample(interpolation_time)
+data_table.to_csv(outputDir + '/' + AHUSENSOR)

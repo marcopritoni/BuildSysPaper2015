@@ -5,12 +5,16 @@ Modified on Jul 31 2015
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn import svm, cross_validation, linear_model, preprocessing
-import quantities as pq
 import os.path
 import sys
+import xlsxwriter
+
 from Query_data import query_data
 from VavDataReader import importVavData
 from standardizeSensors import standardize
+from pint import UnitRegistry
+
+ureg = UnitRegistry()
 
 
 '''Each instance of this class represents a single sensor.'''
@@ -47,8 +51,8 @@ class VAV:
         self.sensors = standardize(sensors) # A dictionary with sensor-type names as keys, and uuids of these types for the given VAV as values.
         self._make_sensor_objs() # convert self.sensors, as it was read in, to a dict of sensor objects.
         self.temp_control_type = temp_control_type  # The type of set point data available for this VAV box
-        self.rho = rho * pq.kg/pq.meter**3
-        self.specific_heat = spec_heat * pq.J/(pq.kg*pq.degC)
+        self.rho = ureg.Quantity(rho,'kg/meter**3')
+        self.specific_heat = ureg.Quantity(spec_heat, 'J/(kg*degC)')
         if serverAddr is None:
             self.serverAddr = "http://new.openbms.org/backend" # Address of the server which contains data for this VAV.
         else:
@@ -56,7 +60,7 @@ class VAV:
 
     def getData(self, sensorObj, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5T', limit=-1, externalID=None):
         if os.path.isfile('Data/' + str(sensorObj.uuid)):
-            print 'file detected'
+            print 'file detected for ' + sensorObj.sType + ': ' + sensorObj.uuid
             df = pd.read_csv('Data/' + sensorObj.uuid, index_col=0)
             if df.empty:
                 sys.exit('No Data for ' + sensorObj.sType + ' for the given time period')
@@ -121,6 +125,8 @@ class VAV:
             return None
 
         table = self._get_stpt(date_start, date_end, interpolation_time, 'heat', offset)
+        if table is None:
+            return None
         diff = table['Heat_Setpoint'] - table['Room_Temperature']
         table['Temp_Heat_Analysis'] = diff > threshold
 
@@ -191,7 +197,10 @@ class VAV:
             stpt = int(stpt.max())
             new_table = table.merge(roomTemp, how='outer', left_index=True, right_index=True)
             new_table[stptName] = stpt
-            new_table = new_table.where(new_table[['Heat_Cool']] == hcv, new_table).fillna(new_table[['Room_Temperature']].mean())
+
+            new_table = new_table[new_table['Heat_Cool'] == hcv]
+            if new_table.empty:
+                return None
         else:
             new_table = roomTemp.merge(stpt, how='outer', left_index=True, right_index=True)
         return new_table
@@ -209,13 +218,15 @@ class VAV:
     # Introducing deltaT and flowValue will perform the full operation.
     def _reheatCalcSingle(self, flowTempValue, sourceTempValue, flowValue=None, deltaT=None):
         if deltaT is not None:
-            temp = (flowTempValue['Flow_Temperature'] - sourceTempValue['Source_Temperature']) * pq.degC + (deltaT)
+            temp = (flowTempValue['Flow_Temperature'] - sourceTempValue['Source_Temperature']) - (deltaT)
         else:
             temp = flowTempValue['Flow_Temperature'] - sourceTempValue['Source_Temperature']
-        temp = pd.DataFrame(temp, columns=['Temp_Diff']) * pq.degC
+        temp = pd.DataFrame(temp, columns=['Temp_Diff'])
         if flowValue is not None:
-            calcVal = pd.DataFrame((temp['Temp_Diff'] * flowValue['Flow_Rate'] * self.rho * self.specific_heat).values.rescale('W'),
-                                   columns=['RV'], index=temp.index)
+            calcVal = self._unit_conv(pd.DataFrame((temp['Temp_Diff'] * flowValue['Flow_Rate'] * self.rho.magnitude
+                                                    * self.specific_heat.magnitude),
+                                   columns=['RV'], index=temp.index),'degC*meter**3/second * kg/meter**3 * J/(kg*degC)',
+                                      'watt')
         else:
             calcVal = temp
         return calcVal
@@ -227,18 +238,18 @@ class VAV:
     # are set to True.
     def calcThermLoad(self, start_date='4/1/2015', end_date='4/2/2015', interpolation_time='5T', limit=1000):
 
-        temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time,
-                                       limit=limit) * pq.degF.rescale('degC')
-        roomTemprStrDt  = self.getData(self.getsensor('Room_Temperature'), start_date, end_date, interpolation_time,
-                                       limit=limit) * pq.degF.rescale('degC')
-        volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time,
-                                       limit=limit) * (pq.foot**3 / pq.minute)\
-                                                    .rescale(pq.CompoundUnit('meter**3/second'))
+        temprFlowStrDt = self._unit_conv(self.getData(self.getsensor('Flow_Temperature'), start_date, end_date,
+                                                      interpolation_time, limit=limit), 'degF', 'degC')
+        roomTemprStrDt  = self._unit_conv(self.getData(self.getsensor('Room_Temperature'), start_date, end_date,
+                                                       interpolation_time, limit=limit), 'degF', 'degC')
+        volAirFlowStrDt = self._unit_conv(self.getData(self.getsensor('Flow_Rate'), start_date, end_date,
+                                            interpolation_time, limit=limit), 'ft**3/minute', 'meter**3/second')
+
         temprDiff = pd.DataFrame()
         temprDiff['Temp_Diff'] = temprFlowStrDt['Flow_Temperature'] - roomTemprStrDt['Room_Temperature']
-        load = pd.DataFrame((temprDiff['Temp_Diff'] * pq.degC * volAirFlowStrDt['Flow_Rate'] *
-                             self.rho * self.specific_heat).values.rescale('W'), columns=['RV'], index=temprDiff.index)
-
+        load = self._unit_conv(pd.DataFrame((temprDiff['Temp_Diff']  * volAirFlowStrDt['Flow_Rate'] *
+                             self.rho.magnitude * self.specific_heat.magnitude), columns=['RV'], index=temprDiff.index),
+                               'degC*meter**3/second * kg/meter**3 * J/(kg*degC)', 'watt')
         return self._produceOutput(volAirFlowStrDt.join([temprDiff, load], how='outer'))
 
     # Calculates the difference between source temperature readings and air flow temperature readings from a room's vent. Only does so
@@ -249,13 +260,13 @@ class VAV:
 
         assert ahu.__class__ is AHU
 
-        temprFlowStrDt  = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time,
-                                       limit=limit) * pq.degF.rescale('degC')
-        sourceTemprStrDt  = self.getData(ahu.sensors, start_date, end_date, interpolation_time,
-                                         limit=limit) * pq.degF.rescale('degC')
+        temprFlowStrDt = self._unit_conv(self.getData(self.getsensor('Flow_Temperature'), start_date, end_date,
+                                                      interpolation_time, limit=limit), 'degF', 'degC')
+        sourceTemprStrDt = self._unit_conv(self.getData(ahu.sensors, start_date, end_date, interpolation_time,
+                                        limit=limit), 'degF', 'degC')
         vlvPosStrDt = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
 
-        fullGrouping = temprFlowStrDt.join([sourceTemprStrDt, vlvPosStrDt])
+        fullGrouping = temprFlowStrDt.join([sourceTemprStrDt, vlvPosStrDt],how='outer')
         fullGrouping = fullGrouping[fullGrouping['Valve_Position'] == 0]
 
         newList = self._reheatCalcSingle(fullGrouping[['Flow_Temperature']], fullGrouping[['Source_Temperature']])
@@ -265,18 +276,24 @@ class VAV:
                    limit=1000):
 
         assert ahu.__class__ is AHU
-        temprFlowStrDt = self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time,
-                                         limit=limit) * pq.degF.rescale('degC')
-        sourceTemprStrDt = self.getData(ahu.sensors, start_date, end_date, interpolation_time,
-                                        limit=limit) * pq.degF.rescale('degC')
-        volAirFlowStrDt = self.getData(self.getsensor('Flow_Rate'), start_date, end_date, interpolation_time,
-                                         limit=limit) *\
-                          (pq.ft**3 / pq.minute).rescale(pq.CompoundUnit('meter**3/second'))
+        temprFlowStrDt = self._unit_conv(self.getData(self.getsensor('Flow_Temperature'), start_date, end_date, interpolation_time,
+                                         limit=limit), 'degF', 'degC')
+        sourceTemprStrDt = self._unit_conv(self.getData(ahu.sensors, start_date, end_date, interpolation_time,
+                                        limit=limit), 'degF', 'degC')
+        volAirFlowStrDt = self._unit_conv(self.getData(self.getsensor('Flow_Rate'), start_date, end_date,
+                                            interpolation_time, limit=limit), 'ft**3/minute', 'meter**3/second')
+
+        vlvPosStrDt = self.getData(self.getsensor('Valve_Position'), start_date, end_date, interpolation_time, limit=limit)
         if delta is None:
             delta = self.calcDelta(ahu, start_date, end_date, interpolation_time, limit)
 
         newList = self._reheatCalcSingle(temprFlowStrDt, sourceTemprStrDt, volAirFlowStrDt, delta)
-        return self._produceOutput(temprFlowStrDt.join([sourceTemprStrDt, volAirFlowStrDt, newList], how='outer'))
+        return self._produceOutput(temprFlowStrDt.join([sourceTemprStrDt, volAirFlowStrDt, newList, vlvPosStrDt], how='outer'))
+
+    @staticmethod
+    def _unit_conv(dataframe, initial_unit, final_unit):
+        dataframe[dataframe.columns[0]] = ureg.Quantity(dataframe.values, initial_unit).to(final_unit).magnitude
+        return dataframe
 
     def linear_regression(self, data, target):
         [data_train, data_valid, target_train,target_valid] = self._split_data(data,target)
@@ -306,15 +323,16 @@ class VAV:
     ##################
     #END CALC METHODS#
     ##################
-
-
-
 if __name__ == "__main__":
+    chosen = 'S5-01'
 
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
-
-    tmp = VAV('S1-09', 'Current')
-    print VAV.validVAVs['S1-09']
-    tmp.calcReheat(testAHU)
+    tmp = VAV(chosen, 'Current')
+    critHeat = tmp.find_critical_temp_heat(date_start='6/8/2015',date_end='6/9/2015', getAll=True)
+    critHeat.to_csv(chosen + '_heat.csv')
+    critCool = tmp.find_critical_temp_cool(date_start='6/8/2015',date_end='6/9/2015', getAll=True)
+    critCool.to_csv(chosen + '_cool.csv')
+    rtrn = tmp.calcReheat(testAHU, start_date='6/8/2015', end_date='6/9/2015')
+    rtrn['Raw'].to_csv(chosen + '_raw.csv')
 

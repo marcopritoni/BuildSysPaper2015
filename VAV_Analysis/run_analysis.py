@@ -60,7 +60,7 @@ def processdata(servAddr, VAV_Name=None):
         retDict['Critical Pressure'].append(criticalPress)
         retDict['VAV'].append(thisVAV.ID)
         print thisVAV.ID + " complete.\n"
-        all_analysis = all_analysis.append(pd.DataFrame(retDict), ignore_index=True)
+    all_analysis = all_analysis.append(pd.DataFrame.from_dict(retDict), ignore_index=True)
     all_analysis.set_index('VAV', inplace=True)
     return [all_analysis, bad]
 
