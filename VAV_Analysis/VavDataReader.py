@@ -5,22 +5,6 @@ import fnmatch
 import ConfigParser
 import json
 
-#class Vav:
-#    IDCounter = 1
-#    curBuilding = None
-
-#    def __init__(self, building=None):
-#        if not building is None and building != Vav.curBuilding:
-#            Vav.curBuilding = building
-#            Vav.IDCounter = 1
-#        if curBuilding is None:
-#            "Error: No initial building. Exiting."
-#            sys.exit()
-#        self.building = Vav.curBuilding
-#        self.wcecID = Vav.IDCounter
-#        Vav.IDCounter += 1
-
-
 class SDaiVavParser:
     def checkValidPath(self, p):
         if fnmatch.fnmatchcase(p, '*S[0-9]-[0-9][0-9]*'):
@@ -99,6 +83,8 @@ def importVavData(configFileName=None, server=None, query=None):
     #dataDict['Server'] = servAddr
     return dataDict
     
-    
-    
-    
+
+if __name__ == '__main__':
+    qStr = 'select Path, uuid where Path like "%S_-%" and Metadata/SourceName = "Sutardja Dai Hall BACnet"'
+    meh = importVavData(server='http://www.openbms.org/backend', query=qStr)
+    print meh['S2-18']

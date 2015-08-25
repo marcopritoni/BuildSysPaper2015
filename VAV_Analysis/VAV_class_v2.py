@@ -58,6 +58,8 @@ class VAV:
         if os.path.isfile('Data/' + str(sensorObj.uuid)):
             print 'file detected'
             df = pd.read_csv('Data/' + sensorObj.uuid, index_col=0)
+            if df.empty:
+                sys.exit('No Data for ' + sensorObj.sType + ' for the given time period')
             df.index = pd.to_datetime(df.index.tolist(), unit='ms').tz_localize('UTC').tz_convert('America/Los_Angeles')
             df = df.groupby(pd.TimeGrouper(interpolation_time)).mean().interpolate(method='time').dropna()
             df.columns = [sensorObj.sType]
@@ -207,7 +209,7 @@ class VAV:
     # Introducing deltaT and flowValue will perform the full operation.
     def _reheatCalcSingle(self, flowTempValue, sourceTempValue, flowValue=None, deltaT=None):
         if deltaT is not None:
-            temp = (flowTempValue['Flow_Temperature'] - sourceTempValue['Source_Temperature']) + (deltaT)
+            temp = (flowTempValue['Flow_Temperature'] - sourceTempValue['Source_Temperature']) * pq.degC + (deltaT)
         else:
             temp = flowTempValue['Flow_Temperature'] - sourceTempValue['Source_Temperature']
         temp = pd.DataFrame(temp, columns=['Temp_Diff']) * pq.degC
@@ -312,6 +314,7 @@ if __name__ == "__main__":
     testAHU = AHU("a7aa36e6-10c4-5008-8a02-039988f284df",
                   "d20604b8-1c55-5e57-b13a-209f07bc9e0c",)
 
-    tmp = VAV('S1-23', 'Current')
-    tmp.calcThermLoad()
+    tmp = VAV('S1-09', 'Current')
+    print VAV.validVAVs['S1-09']
+    tmp.calcReheat(testAHU)
 
